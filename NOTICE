@@ -1,0 +1,23 @@
+Port Royale 2D Tiny
+Copyright 2026 Nigillus
+
+This product's source code is licensed under the Apache License, Version 2.0
+(see LICENSE). The third-party assets listed below are NOT covered by that
+license and remain under their own terms.
+
+================================================================================
+Third-party assets
+================================================================================
+
+assets/maps/caribbean_relief.png
+
+  "Middle America relief location map"
+  Author:  Uwe Dedering
+  Source:  Wikimedia Commons
+           https://commons.wikimedia.org/wiki/File:Middle_America_relief_location_map.png
+  License: Creative Commons Attribution-Share Alike 3.0 Unported (CC BY-SA 3.0)
+           https://creativecommons.org/licenses/by-sa/3.0/deed.en
+
+  This file (and any modified/derivative version of it) remains under
+  CC BY-SA 3.0: redistribution requires attribution to Uwe Dedering, and
+  derivative works must be shared under the same or a compatible license.

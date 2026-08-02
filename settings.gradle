@@ -1,0 +1,4 @@
+rootProject.name = 'port-royale-2d-tiny'
+
+include 'core'
+include 'lwjgl3'
