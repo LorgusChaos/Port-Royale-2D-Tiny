@@ -32,3 +32,65 @@ assets/sprites/ships/, assets/sprites/tiles/
 
   Public domain - usable without restriction, credit not required but given
   here as a courtesy.
+
+assets/audio/hit.ogg, assets/audio/click.ogg
+
+  "Impact Sounds" (hit.ogg) and "UI Audio" (click.ogg)
+  Author:  Kenney Vleugels (www.kenney.nl)
+  Source:  https://kenney.nl/assets/impact-sounds
+           https://kenney.nl/assets/ui-audio
+  License: Creative Commons Zero (CC0 1.0 Universal)
+           https://creativecommons.org/publicdomain/zero/1.0/
+
+assets/audio/coins.ogg
+
+  "RPG Audio" (handleCoins.ogg)
+  Author:  Kenney Vleugels (www.kenney.nl)
+  Source:  https://kenney.nl/assets/rpg-audio
+  License: Creative Commons Zero (CC0 1.0 Universal)
+           https://creativecommons.org/publicdomain/zero/1.0/
+
+assets/audio/cannon_fire.ogg
+
+  "25 CC0 bang / firework SFX" (cannon_01.ogg)
+  Author:  rubberduck (OpenGameArt.org)
+  Source:  https://opengameart.org/content/25-cc0-bang-firework-sfx
+  License: Creative Commons Zero (CC0 1.0 Universal)
+           https://creativecommons.org/publicdomain/zero/1.0/
+
+  All four audio files above are public domain - usable without restriction,
+  credit not required but given here as a courtesy.
+
+assets/audio/port_arrival.ogg
+
+  "Impact Sounds" (impactBell_heavy_001.ogg)
+  Author:  Kenney Vleugels (www.kenney.nl)
+  Source:  https://kenney.nl/assets/impact-sounds
+  License: Creative Commons Zero (CC0 1.0 Universal)
+           https://creativecommons.org/publicdomain/zero/1.0/
+
+assets/audio/market_enter.ogg, assets/audio/shipyard_enter.ogg
+
+  "RPG Audio" (bookOpen.ogg, doorOpen_1.ogg)
+  Author:  Kenney Vleugels (www.kenney.nl)
+  Source:  https://kenney.nl/assets/rpg-audio
+  License: Creative Commons Zero (CC0 1.0 Universal)
+           https://creativecommons.org/publicdomain/zero/1.0/
+
+  All three audio files above are public domain - usable without restriction,
+  credit not required but given here as a courtesy.
+
+assets/audio/music/sailing_1.wav, assets/audio/music/sailing_2.wav,
+assets/audio/music/sailing_3.wav, assets/audio/music/combat.wav
+
+  "Ocean Music Pack"
+  (01_exploring_the_ocean.wav, 02_seaside_village.wav,
+  03_hearts_separated_by_the_ocean.wav, 07_ready_cannons_and_fire.wav)
+  Author:  Leonardo Paz (OpenGameArt.org)
+  Source:  https://opengameart.org/content/ocean-music-pack
+  License: Creative Commons Attribution 4.0 / 3.0 (CC BY 4.0 / CC BY 3.0)
+           https://creativecommons.org/licenses/by/4.0/
+
+  Unlike the other third-party audio in this project, these tracks require
+  attribution: credit "Leonardo Paz" if this project (or these files) is
+  redistributed.

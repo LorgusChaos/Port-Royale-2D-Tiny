@@ -17,15 +17,27 @@ import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.utils.viewport.FitViewport
 import com.badlogic.gdx.utils.viewport.Viewport
+import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.combat.CombatOutcome
 import com.portroyale.tiny.combat.CombatState
 import com.portroyale.tiny.combat.Enemies
 import com.portroyale.tiny.combat.ShipCombatant
 import com.portroyale.tiny.economy.Good
 import com.portroyale.tiny.economy.Player
+import com.portroyale.tiny.save.SaveManager
+import com.portroyale.tiny.save.SettingsManager
 import com.portroyale.tiny.ships.ShipTypes
 import com.portroyale.tiny.ui.CombatUI
-import com.portroyale.tiny.ui.PortMarketUI
+import com.portroyale.tiny.ui.FortressUI
+import com.portroyale.tiny.ui.IconFactory
+import com.portroyale.tiny.ui.LoadGameUI
+import com.portroyale.tiny.ui.MainMenuUI
+import com.portroyale.tiny.ui.MarketUI
+import com.portroyale.tiny.ui.NewGameUI
+import com.portroyale.tiny.ui.PortHubUI
+import com.portroyale.tiny.ui.SaveGameUI
+import com.portroyale.tiny.ui.SettingsUI
+import com.portroyale.tiny.ui.ShipyardUI
 import com.portroyale.tiny.world.MapProjection
 import com.portroyale.tiny.world.Ports
 import com.portroyale.tiny.world.WorldMap
@@ -50,6 +62,9 @@ private const val MINIMAP_MARGIN = 16f
 
 private enum class NavMode { MANUAL, AUTOPILOT }
 private enum class GameMode { SAILING, IN_PORT, COMBAT }
+private enum class PortScreen { HUB, MARKET, SHIPYARD, FORTRESS }
+private enum class AppState { MENU, PLAYING }
+private enum class MenuScreen { MAIN, NEW_GAME, LOAD, SAVE, SETTINGS }
 
 private class ResolvedPort(val port: Ports.Port, val worldPos: Vector2, val approachPoint: Vector2)
 
@@ -75,12 +90,27 @@ class PortRoyaleGame : ApplicationAdapter() {
     private lateinit var minimapCamera: OrthographicCamera
     private lateinit var worldMap: WorldMap
     private lateinit var resolvedPorts: List<ResolvedPort>
-    private lateinit var portMarketUI: PortMarketUI
+    private lateinit var portHubUI: PortHubUI
+    private lateinit var marketUI: MarketUI
+    private lateinit var shipyardUI: ShipyardUI
+    private lateinit var fortressUI: FortressUI
     private lateinit var combatUI: CombatUI
+    private lateinit var mainMenuUI: MainMenuUI
+    private lateinit var newGameUI: NewGameUI
+    private lateinit var loadGameUI: LoadGameUI
+    private lateinit var saveGameUI: SaveGameUI
+    private lateinit var settingsUI: SettingsUI
 
     private val player = Player()
     private var gameMode = GameMode.SAILING
+    private var portScreen = PortScreen.HUB
+    private var currentPortName = ""
     private var encounterTimer = 0f
+
+    private var appState = AppState.MENU
+    private var menuScreen = MenuScreen.MAIN
+    private var gameActive = false
+    private var captainName = ""
 
     private val shipPosition = Vector2()
     private var shipHeadingDeg = 0f
@@ -130,20 +160,58 @@ class PortRoyaleGame : ApplicationAdapter() {
             ResolvedPort(port, pos, approach)
         }
 
-        portMarketUI = PortMarketUI(player, onSetSail = ::leavePort)
+        portHubUI = PortHubUI(
+            player,
+            onOpenMarket = ::openMarket,
+            onOpenShipyard = ::openShipyard,
+            onOpenFortress = ::openFortress,
+            onSetSail = ::leavePort
+        )
+        marketUI = MarketUI(player, onBack = ::openHub)
+        shipyardUI = ShipyardUI(player, onBack = ::openHub)
+        fortressUI = FortressUI(onBack = ::openHub)
         combatUI = CombatUI(onCombatEnd = ::finishCombat)
 
-        val start = resolvedPorts.firstOrNull { it.port.name == "Port Royal" }?.approachPoint
-            ?: Vector2(MapProjection.MAP_WIDTH / 2f, MapProjection.MAP_HEIGHT / 2f)
-        shipPosition.set(start)
+        mainMenuUI = MainMenuUI(
+            onContinue = ::resumeGame,
+            onNewGame = ::openNewGameScreen,
+            onLoad = ::openLoadScreen,
+            onSave = ::openSaveScreen,
+            onSettings = ::openSettingsScreen
+        )
+        newGameUI = NewGameUI(onBegin = ::startNewGame, onBack = ::showMainMenu)
+        loadGameUI = LoadGameUI(onLoad = ::loadGame, onBack = ::showMainMenu)
+        saveGameUI = SaveGameUI(onSave = ::saveGame, onBack = ::showMainMenu)
+        settingsUI = SettingsUI(onBack = ::showMainMenu)
 
-        Gdx.input.inputProcessor = sailingInputProcessor
+        val settings = SettingsManager.load()
+        AudioManager.setMasterVolume(settings.masterVolume)
+        AudioManager.setMuted(settings.muted)
+        if (settings.windowWidth != Gdx.graphics.width || settings.windowHeight != Gdx.graphics.height) {
+            Gdx.graphics.setWindowedMode(settings.windowWidth, settings.windowHeight)
+        }
+
+        shipPosition.set(defaultStartPosition())
+
+        showMainMenu()
     }
+
+    private fun defaultStartPosition(): Vector2 =
+        resolvedPorts.firstOrNull { it.port.name == "Port Royal" }?.approachPoint
+            ?: Vector2(MapProjection.MAP_WIDTH / 2f, MapProjection.MAP_HEIGHT / 2f)
 
     override fun resize(width: Int, height: Int) {
         viewport.update(width, height)
-        portMarketUI.resize(width, height)
+        portHubUI.resize(width, height)
+        marketUI.resize(width, height)
+        shipyardUI.resize(width, height)
+        fortressUI.resize(width, height)
         combatUI.resize(width, height)
+        mainMenuUI.resize(width, height)
+        newGameUI.resize(width, height)
+        loadGameUI.resize(width, height)
+        saveGameUI.resize(width, height)
+        settingsUI.resize(width, height)
     }
 
     override fun render() {
@@ -151,7 +219,11 @@ class PortRoyaleGame : ApplicationAdapter() {
         // reliably stick between frames, which silently desyncs rendering from click unprojection.
         viewport.apply()
 
-        if (gameMode == GameMode.SAILING) {
+        if (Gdx.input.isKeyJustPressed(Keys.ESCAPE)) {
+            handleEscape()
+        }
+
+        if (appState == AppState.PLAYING && gameMode == GameMode.SAILING) {
             handleInput()
             updateAutopilot(Gdx.graphics.deltaTime)
             updateEncounters(Gdx.graphics.deltaTime)
@@ -177,7 +249,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         shapeRenderer.end()
 
         batch.begin()
-        drawShip()
+        if (gameActive) drawShip()
         drawPortLabels()
         batch.end()
 
@@ -190,14 +262,27 @@ class PortRoyaleGame : ApplicationAdapter() {
             shapeRenderer.end()
         }
 
-        drawMinimap()
+        if (gameActive) drawMinimap()
 
-        if (gameMode == GameMode.IN_PORT) {
-            portMarketUI.render(Gdx.graphics.deltaTime)
-        }
-
-        if (gameMode == GameMode.COMBAT) {
-            combatUI.render(Gdx.graphics.deltaTime)
+        if (appState == AppState.PLAYING) {
+            when (gameMode) {
+                GameMode.IN_PORT -> when (portScreen) {
+                    PortScreen.HUB -> portHubUI.render(Gdx.graphics.deltaTime)
+                    PortScreen.MARKET -> marketUI.render(Gdx.graphics.deltaTime)
+                    PortScreen.SHIPYARD -> shipyardUI.render(Gdx.graphics.deltaTime)
+                    PortScreen.FORTRESS -> fortressUI.render(Gdx.graphics.deltaTime)
+                }
+                GameMode.COMBAT -> combatUI.render(Gdx.graphics.deltaTime)
+                GameMode.SAILING -> {}
+            }
+        } else {
+            when (menuScreen) {
+                MenuScreen.MAIN -> mainMenuUI.render(Gdx.graphics.deltaTime)
+                MenuScreen.NEW_GAME -> newGameUI.render(Gdx.graphics.deltaTime)
+                MenuScreen.LOAD -> loadGameUI.render(Gdx.graphics.deltaTime)
+                MenuScreen.SAVE -> saveGameUI.render(Gdx.graphics.deltaTime)
+                MenuScreen.SETTINGS -> settingsUI.render(Gdx.graphics.deltaTime)
+            }
         }
     }
 
@@ -329,13 +414,133 @@ class PortRoyaleGame : ApplicationAdapter() {
 
     private fun arriveAtPort(port: ResolvedPort) {
         gameMode = GameMode.IN_PORT
-        portMarketUI.open(port.port.name)
-        Gdx.input.inputProcessor = portMarketUI.stage
+        currentPortName = port.port.name
+        AudioManager.pauseSailingMusic()
+        AudioManager.playPortArrival()
+        openHub()
+    }
+
+    private fun openHub() {
+        portScreen = PortScreen.HUB
+        portHubUI.open(currentPortName)
+        Gdx.input.inputProcessor = portHubUI.stage
+    }
+
+    private fun openMarket() {
+        portScreen = PortScreen.MARKET
+        marketUI.open(currentPortName)
+        Gdx.input.inputProcessor = marketUI.stage
+    }
+
+    private fun openShipyard() {
+        portScreen = PortScreen.SHIPYARD
+        shipyardUI.open()
+        Gdx.input.inputProcessor = shipyardUI.stage
+    }
+
+    private fun openFortress() {
+        portScreen = PortScreen.FORTRESS
+        fortressUI.open(currentPortName)
+        Gdx.input.inputProcessor = fortressUI.stage
     }
 
     private fun leavePort() {
         gameMode = GameMode.SAILING
         Gdx.input.inputProcessor = sailingInputProcessor
+        AudioManager.playSailingMusic()
+    }
+
+    /** Esc backs out one level of the paused menu, or resumes gameplay from the top-level menu,
+     *  or pauses gameplay to open the top-level menu - whichever applies to the current state. */
+    private fun handleEscape() {
+        when {
+            appState == AppState.PLAYING -> pauseGame()
+            menuScreen != MenuScreen.MAIN -> showMainMenu()
+            gameActive -> resumeGame()
+            else -> {} // title screen, no game yet - Esc has nothing to do
+        }
+    }
+
+    private fun pauseGame() {
+        appState = AppState.MENU
+        showMainMenu()
+    }
+
+    private fun showMainMenu() {
+        menuScreen = MenuScreen.MAIN
+        mainMenuUI.open(gameActive)
+        Gdx.input.inputProcessor = mainMenuUI.stage
+    }
+
+    private fun resumeGame() {
+        appState = AppState.PLAYING
+        Gdx.input.inputProcessor = when (gameMode) {
+            GameMode.SAILING -> sailingInputProcessor
+            GameMode.IN_PORT -> when (portScreen) {
+                PortScreen.HUB -> portHubUI.stage
+                PortScreen.MARKET -> marketUI.stage
+                PortScreen.SHIPYARD -> shipyardUI.stage
+                PortScreen.FORTRESS -> fortressUI.stage
+            }
+            GameMode.COMBAT -> combatUI.stage
+        }
+    }
+
+    private fun openNewGameScreen() {
+        menuScreen = MenuScreen.NEW_GAME
+        newGameUI.open()
+        Gdx.input.inputProcessor = newGameUI.stage
+    }
+
+    private fun openLoadScreen() {
+        menuScreen = MenuScreen.LOAD
+        loadGameUI.open()
+        Gdx.input.inputProcessor = loadGameUI.stage
+    }
+
+    private fun openSaveScreen() {
+        menuScreen = MenuScreen.SAVE
+        saveGameUI.open()
+        Gdx.input.inputProcessor = saveGameUI.stage
+    }
+
+    private fun openSettingsScreen() {
+        menuScreen = MenuScreen.SETTINGS
+        settingsUI.open()
+        Gdx.input.inputProcessor = settingsUI.stage
+    }
+
+    private fun beginPlaying() {
+        shipHeadingDeg = 0f
+        navMode = NavMode.MANUAL
+        path = emptyList()
+        destinationPort = null
+        gameActive = true
+        appState = AppState.PLAYING
+        gameMode = GameMode.SAILING
+        Gdx.input.inputProcessor = sailingInputProcessor
+        AudioManager.playSailingMusic()
+    }
+
+    private fun startNewGame(name: String) {
+        captainName = name.ifBlank { "Captain" }
+        player.reset()
+        shipPosition.set(defaultStartPosition())
+        beginPlaying()
+    }
+
+    private fun loadGame(saveName: String) {
+        val data = SaveManager.load(saveName) ?: return
+        captainName = data.captainName
+        val shipType = SaveManager.resolveShipType(data.shipTypeName)
+        val cargo = SaveManager.resolveCargo(data.cargo)
+        player.loadState(data.gold, shipType, cargo)
+        shipPosition.set(data.shipX, data.shipY)
+        beginPlaying()
+    }
+
+    private fun saveGame(saveName: String) {
+        SaveManager.save(saveName, captainName, player, shipPosition)
     }
 
     private fun updateEncounters(delta: Float) {
@@ -349,11 +554,13 @@ class PortRoyaleGame : ApplicationAdapter() {
 
     private fun startCombat() {
         gameMode = GameMode.COMBAT
+        AudioManager.playCombatMusic()
         val playerStats = ShipCombatant(
             name = player.ship.name,
             maxHull = player.ship.maxHull,
             minDamage = player.ship.minDamage,
-            maxDamage = player.ship.maxDamage
+            maxDamage = player.ship.maxDamage,
+            spritePath = player.ship.spritePath
         )
         combatUI.open(CombatState(player, playerStats, Enemies.PIRATE_SLOOP))
         Gdx.input.inputProcessor = combatUI.stage
@@ -368,6 +575,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
         gameMode = GameMode.SAILING
         Gdx.input.inputProcessor = sailingInputProcessor
+        AudioManager.stopCombatMusic()
+        AudioManager.playSailingMusic()
     }
 
     private fun tryMove(dx: Float, dy: Float) {
@@ -463,7 +672,17 @@ class PortRoyaleGame : ApplicationAdapter() {
         portLabelFont.dispose()
         mapTexture.dispose()
         shipTextures.values.forEach { it.dispose() }
-        portMarketUI.dispose()
+        portHubUI.dispose()
+        marketUI.dispose()
+        shipyardUI.dispose()
+        fortressUI.dispose()
         combatUI.dispose()
+        mainMenuUI.dispose()
+        newGameUI.dispose()
+        loadGameUI.dispose()
+        saveGameUI.dispose()
+        settingsUI.dispose()
+        AudioManager.dispose()
+        IconFactory.dispose()
     }
 }

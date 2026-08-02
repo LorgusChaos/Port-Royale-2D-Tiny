@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.3.0] - 2026-08-03
+
+### Added
+- Background music: a rotating playlist of three sailing tracks, a dedicated combat track, and a
+  port-arrival cue, switching automatically with what the player is doing (sailing/in port/
+  fighting).
+- Master volume slider and mute toggle (Settings) affecting both music and sound effects; new SFX
+  for entering the market and the shipyard, on top of the existing cannon fire/hit/coins/click.
+- Port screen redesign: arriving at a port now opens a city hub with icon buttons for **Market**,
+  **Shipyard**, and a **Commandant's Office** (a stub reserved for future quests) instead of one
+  combined panel. Goods have hand-drawn icons in the market; ships have sprite thumbnails in the
+  shipyard.
+- Main menu / title screen: **New Game** (captain name entry), **Load**, **Save**, and
+  **Settings** (volume, mute, window resolution, and a "check for updates" placeholder). `Esc`
+  opens the same menu as a pause screen during play and resumes exactly where play left off,
+  including mid-port or mid-combat.
+- Save/load: game state (captain name, gold, ship, cargo, position) persists to JSON files under
+  the user's home directory, independent of wherever the game is installed/run from; settings
+  persist the same way.
+- Combat visuals: ship sprites for both sides, animated cannonball flights, a hit flash, a miss
+  chance, wider ship spacing, and the combat screen is now centered instead of anchored top-left.
+- Five more ports - Santiago de Cuba, Bridgetown, Willemstad, Veracruz, Portobelo (12 total) -
+  and four more tradeable goods - Coffee, Cacao, Cloth, Silver (10 total) - with per-port price
+  specialties reflecting real Caribbean-era trade patterns.
+
+### Changed
+- Player starting gold raised to make ship upgrades easier to reach for testing; economy balance
+  is still a known open item.
+
 ## [0.2.0] - 2026-08-02
 
 ### Added

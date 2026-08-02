@@ -7,7 +7,9 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.graphics.g2d.TextureRegion
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Skin
+import com.badlogic.gdx.scenes.scene2d.ui.Slider
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
+import com.badlogic.gdx.scenes.scene2d.ui.TextField
 import com.badlogic.gdx.scenes.scene2d.utils.Drawable
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 
@@ -34,15 +36,31 @@ object UiSkinFactory {
         buttonStyle.fontColor = Color.WHITE
         skin.add("default", buttonStyle)
 
+        val textFieldStyle = TextField.TextFieldStyle()
+        textFieldStyle.font = font
+        textFieldStyle.fontColor = Color.WHITE
+        textFieldStyle.cursor = solidDrawable(Color.WHITE, minWidth = 2f)
+        textFieldStyle.selection = solidDrawable(Color(0.4f, 0.4f, 0.7f, 0.5f))
+        textFieldStyle.background = solidDrawable(Color(0.15f, 0.11f, 0.07f, 1f), minHeight = 30f)
+        skin.add("default", textFieldStyle)
+
+        val sliderStyle = Slider.SliderStyle()
+        sliderStyle.background = solidDrawable(Color(0.25f, 0.18f, 0.10f, 1f), minHeight = 8f)
+        sliderStyle.knob = solidDrawable(Color(0.85f, 0.75f, 0.55f, 1f), minWidth = 16f, minHeight = 20f)
+        skin.add("default-horizontal", sliderStyle)
+
         return skin
     }
 
-    private fun solidDrawable(color: Color): TextureRegionDrawable {
+    private fun solidDrawable(color: Color, minWidth: Float = 0f, minHeight: Float = 0f): TextureRegionDrawable {
         val pixmap = Pixmap(4, 4, Pixmap.Format.RGBA8888)
         pixmap.setColor(color)
         pixmap.fill()
         val texture = Texture(pixmap)
         pixmap.dispose()
-        return TextureRegionDrawable(TextureRegion(texture))
+        val drawable = TextureRegionDrawable(TextureRegion(texture))
+        if (minWidth > 0f) drawable.minWidth = minWidth
+        if (minHeight > 0f) drawable.minHeight = minHeight
+        return drawable
     }
 }

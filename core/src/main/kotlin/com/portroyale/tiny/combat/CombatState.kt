@@ -6,12 +6,13 @@ import kotlin.random.Random
 enum class CombatOutcome { ONGOING, VICTORY, DEFEAT, FLED }
 
 private const val FLEE_CHANCE = 0.6f
+private const val MISS_CHANCE = 0.18f
 private const val MIN_VICTORY_REWARD = 50
 private const val MAX_VICTORY_REWARD = 150
 
-/** One turn-based encounter: player picks Fire/Flee each round, enemy always fires back.
- *  playerStats is derived from the player's current ship, so buying a better ship makes
- *  a real difference in combat. */
+/** One turn-based encounter: player picks Fire/Flee each round, enemy always fires back unless
+ *  the encounter already ended. Both sides can miss. playerStats is derived from the player's
+ *  current ship, so buying a better ship makes a real difference in combat. */
 class CombatState(
     private val player: Player,
     private val playerStats: ShipCombatant,
@@ -20,6 +21,8 @@ class CombatState(
     val enemyName = enemy.name
     val playerMaxHull = playerStats.maxHull
     val enemyMaxHull = enemy.maxHull
+    val playerSpritePath = playerStats.spritePath
+    val enemySpritePath = enemy.spritePath
 
     var playerHull = playerMaxHull
         private set
@@ -36,9 +39,14 @@ class CombatState(
 
     fun playerAttack() {
         if (isOver) return
-        val damage = Random.nextInt(playerStats.minDamage, playerStats.maxDamage + 1)
-        enemyHull = (enemyHull - damage).coerceAtLeast(0)
-        var message = "You hit ${enemy.name} for $damage."
+
+        var message = if (Random.nextFloat() < MISS_CHANCE) {
+            "Your shot goes wide and misses ${enemy.name}."
+        } else {
+            val damage = Random.nextInt(playerStats.minDamage, playerStats.maxDamage + 1)
+            enemyHull = (enemyHull - damage).coerceAtLeast(0)
+            "You hit ${enemy.name} for $damage."
+        }
 
         if (enemyHull <= 0) {
             val reward = Random.nextInt(MIN_VICTORY_REWARD, MAX_VICTORY_REWARD + 1)
@@ -63,6 +71,9 @@ class CombatState(
     }
 
     private fun enemyStrikesBack(): String {
+        if (Random.nextFloat() < MISS_CHANCE) {
+            return "${enemy.name}'s shot goes wide and misses you."
+        }
         val damage = Random.nextInt(enemy.minDamage, enemy.maxDamage + 1)
         playerHull = (playerHull - damage).coerceAtLeast(0)
         var message = "${enemy.name} hits you for $damage."

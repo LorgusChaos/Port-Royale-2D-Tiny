@@ -36,4 +36,18 @@ class Player(var gold: Int = 10000) {
         gold -= shipType.price
         ship = shipType
     }
+
+    /** Resets to a fresh captain's starting state, for New Game. */
+    fun reset() {
+        gold = 10000
+        ship = ShipTypes.SLOOP
+        Good.entries.forEach { cargo[it] = 0 }
+    }
+
+    /** Overwrites state from a loaded save, bypassing the buy/sell gold accounting. */
+    fun loadState(gold: Int, ship: ShipType, cargo: Map<Good, Int>) {
+        this.gold = gold
+        this.ship = ship
+        Good.entries.forEach { this.cargo[it] = cargo[it] ?: 0 }
+    }
 }
