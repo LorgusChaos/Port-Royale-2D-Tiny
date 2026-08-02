@@ -4,13 +4,14 @@ import com.badlogic.gdx.math.Vector2
 
 /**
  * Calibrated against the documented bounding box of the "Middle America relief location map"
- * (Wikimedia Commons: North 32.0N, South 6.0N, West 99.0W, East 58.0W, equirectangular),
- * used here at its native 2000x1344 resolution. Exact published bounds, not read off the art
- * by eye, so this should line up closely with the actual coastline artwork.
+ * (Wikimedia Commons: North 32.0N, South 6.0N, West 99.0W, East 58.0W, equirectangular). The
+ * source art is 2000x1344px, but the world is deliberately twice that in each dimension (so
+ * distances/voyages feel bigger) - WorldMap's pixel sampling accounts for the difference, so
+ * this doesn't require re-sourcing higher-resolution art.
  */
 object MapProjection {
-    const val MAP_WIDTH = 2000f
-    const val MAP_HEIGHT = 1344f
+    const val MAP_WIDTH = 4000f
+    const val MAP_HEIGHT = 2688f
 
     private const val LON_WEST = -99f
     private const val LON_EAST = -58f

@@ -9,6 +9,7 @@ private const val SETTINGS_PATH = "PortRoyaleTiny/settings.json"
 class SettingsData {
     var masterVolume: Float = 1f
     var muted: Boolean = false
+    var fullscreen: Boolean = false
     var windowWidth: Int = 1280
     var windowHeight: Int = 720
 }

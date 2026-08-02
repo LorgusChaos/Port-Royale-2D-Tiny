@@ -8,7 +8,6 @@ import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
-import com.badlogic.gdx.utils.viewport.ScreenViewport
 import com.portroyale.tiny.audio.AudioManager
 
 /** Title screen and Esc pause menu - the same screen serves both roles. Continue and Save only
@@ -21,7 +20,7 @@ class MainMenuUI(
     private val onSave: () -> Unit,
     private val onSettings: () -> Unit
 ) {
-    val stage = Stage(ScreenViewport())
+    val stage = Stage(UiScale.viewport())
 
     private val skin = UiSkinFactory.build()
     private val root = Table()

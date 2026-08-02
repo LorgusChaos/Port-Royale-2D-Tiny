@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.4.0] - 2026-08-03
+
+### Added
+- Ship upgrades and condition: cannons/extra oars/extra sails (3 levels each, persistent),
+  hull fouling that slows the ship over time at sea (cleanable), and hull damage that now
+  persists between fights instead of resetting (repairable) - all managed from a new Ship
+  Status screen in the shipyard, alongside a full stat readout including a new maneuverability
+  stat (improves flee chance and evasion in combat).
+- Historical factions - Spain, England, France, the Netherlands - assigned to each port by its
+  real 17th/18th-century colonial owner, and a reputation system (-100 to +100, five tiers)
+  that shifts Market prices and determines whether a faction's warships are hostile on sight.
+  The Commandant's Office now shows real content: standing with each power.
+- Roaming AI ships, visible on the map and faction-tinted: trade and military ships patrol
+  between their own faction's ports, pirates wander between any port. Pirates and
+  hostile-reputation military ships engage the player on approach; peaceful ships can be
+  deliberately hunted down (click to pursue) for gold at the cost of reputation. Replaces the
+  old invisible random-encounter timer entirely. Ports (and the water right around them) are a
+  safe harbor where no encounter can trigger.
+- Visual pass: a real pixel font (Kenney Pixel, via FreeType) and bordered panel/button chrome
+  replace the default placeholder look everywhere; every icon now gets an automatic outline for
+  a more consistent "pixel art" read; the port marker on the map is a proper watchtower icon
+  instead of a plain dot. The whole UI also renders 1.5x bigger.
+- Settings: a Fullscreen toggle; Resolution now only applies while Fullscreen is on, so windowed
+  mode is always freely resizable by dragging the window instead of being tied to a preset list.
+- Right-click-drag camera panning (1:1 with the cursor), alongside the existing edge-of-screen
+  panning.
+- The world map is twice its previous size and sailing speeds are substantially slower across
+  the board, so a voyage between ports takes real time instead of a few seconds.
+
+### Fixed
+- A port-icon rendering change had silently dropped a required projection-matrix reset, so the
+  rejected-click marker and the autopilot route line were drawing in the minimap's coordinate
+  space instead of the main view's - looked exactly like clicks landing in the wrong place.
+- Clicking a new destination while chasing a ship didn't cancel the chase, leaving the ship
+  "stuck" following the old target in a straight line with no obstacle avoidance instead of
+  respecting the new course.
+- Water/land collision sampling assumed world coordinates matched the map image's pixels 1:1;
+  broke once the world was resized independent of the source image's resolution, now scales
+  correctly. Single-port factions (France, the Netherlands) could also get stuck endlessly
+  re-targeting their own only port instead of patrolling.
+
 ## [0.3.0] - 2026-08-03
 
 ### Added

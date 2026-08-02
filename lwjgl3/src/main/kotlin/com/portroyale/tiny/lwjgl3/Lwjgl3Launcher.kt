@@ -9,7 +9,7 @@ object Lwjgl3Launcher {
     @JvmStatic
     fun main(args: Array<String>) {
         val config = Lwjgl3ApplicationConfiguration()
-        config.setTitle("Port Royale 2D Tiny v0.3")
+        config.setTitle("Port Royale 2D Tiny v0.4")
         config.setWindowedMode(1280, 720)
         config.setResizable(true)
         config.useVsync(true)

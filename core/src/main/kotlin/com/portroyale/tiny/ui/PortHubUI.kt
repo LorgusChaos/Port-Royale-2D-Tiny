@@ -12,7 +12,6 @@ import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.utils.Align
-import com.badlogic.gdx.utils.viewport.ScreenViewport
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.economy.Player
 
@@ -27,7 +26,7 @@ class PortHubUI(
     private val onOpenFortress: () -> Unit,
     private val onSetSail: () -> Unit
 ) {
-    val stage = Stage(ScreenViewport())
+    val stage = Stage(UiScale.viewport())
 
     private val skin = UiSkinFactory.build()
     private val root = Table()

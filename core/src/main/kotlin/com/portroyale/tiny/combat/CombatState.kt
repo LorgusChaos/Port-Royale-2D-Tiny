@@ -5,14 +5,21 @@ import kotlin.random.Random
 
 enum class CombatOutcome { ONGOING, VICTORY, DEFEAT, FLED }
 
-private const val FLEE_CHANCE = 0.6f
+private const val BASE_FLEE_CHANCE = 0.35f
+private const val FLEE_CHANCE_PER_MANEUVER = 0.004f
+private const val MAX_FLEE_CHANCE = 0.85f
 private const val MISS_CHANCE = 0.18f
+private const val EVASION_PER_MANEUVER = 0.002f
+private const val MAX_ENEMY_MISS_CHANCE = 0.5f
 private const val MIN_VICTORY_REWARD = 50
 private const val MAX_VICTORY_REWARD = 150
 
 /** One turn-based encounter: player picks Fire/Flee each round, enemy always fires back unless
- *  the encounter already ended. Both sides can miss. playerStats is derived from the player's
- *  current ship, so buying a better ship makes a real difference in combat. */
+ *  the encounter already ended. Both sides can miss; the player's effective maneuverability
+ *  (base stat + oar upgrades) improves both flee odds and the enemy's chance to miss. Hull
+ *  damage persists on player.condition.currentHull, so it carries over past this one fight -
+ *  playerStats is derived from the player's current ship, so buying a better ship (and
+ *  installing upgrades) makes a real difference in combat. */
 class CombatState(
     private val player: Player,
     private val playerStats: ShipCombatant,
@@ -24,8 +31,18 @@ class CombatState(
     val playerSpritePath = playerStats.spritePath
     val enemySpritePath = enemy.spritePath
 
-    var playerHull = playerMaxHull
-        private set
+    private val fleeChance: Float
+        get() = (BASE_FLEE_CHANCE + player.effectiveManeuverability * FLEE_CHANCE_PER_MANEUVER)
+            .coerceAtMost(MAX_FLEE_CHANCE)
+    private val enemyMissChance: Float
+        get() = (MISS_CHANCE + player.effectiveManeuverability * EVASION_PER_MANEUVER)
+            .coerceAtMost(MAX_ENEMY_MISS_CHANCE)
+
+    var playerHull = player.condition.currentHull
+        private set(value) {
+            field = value
+            player.condition.currentHull = value
+        }
     var enemyHull = enemyMaxHull
         private set
 
@@ -62,7 +79,7 @@ class CombatState(
 
     fun playerFlee() {
         if (isOver) return
-        if (Random.nextFloat() < FLEE_CHANCE) {
+        if (Random.nextFloat() < fleeChance) {
             outcome = CombatOutcome.FLED
             log = "You break off and outrun ${enemy.name}."
             return
@@ -71,7 +88,7 @@ class CombatState(
     }
 
     private fun enemyStrikesBack(): String {
-        if (Random.nextFloat() < MISS_CHANCE) {
+        if (Random.nextFloat() < enemyMissChance) {
             return "${enemy.name}'s shot goes wide and misses you."
         }
         val damage = Random.nextInt(enemy.minDamage, enemy.maxDamage + 1)

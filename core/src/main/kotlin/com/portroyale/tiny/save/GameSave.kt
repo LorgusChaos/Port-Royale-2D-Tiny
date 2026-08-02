@@ -7,6 +7,7 @@ import com.badlogic.gdx.utils.Json
 import com.badlogic.gdx.utils.JsonWriter
 import com.portroyale.tiny.economy.Good
 import com.portroyale.tiny.economy.Player
+import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.ships.ShipType
 import com.portroyale.tiny.ships.ShipTypes
 
@@ -20,6 +21,12 @@ class GameSaveData {
     var cargo: MutableMap<String, Int> = mutableMapOf()
     var shipX: Float = 0f
     var shipY: Float = 0f
+    var currentHull: Int = 100
+    var fouling: Float = 0f
+    var cannonLevel: Int = 0
+    var oarLevel: Int = 0
+    var sailLevel: Int = 0
+    var reputation: MutableMap<String, Int> = mutableMapOf()
 }
 
 /**
@@ -46,6 +53,12 @@ object SaveManager {
         data.cargo = player.cargo.entries.associate { it.key.name to it.value }.toMutableMap()
         data.shipX = shipPosition.x
         data.shipY = shipPosition.y
+        data.currentHull = player.condition.currentHull
+        data.fouling = player.condition.fouling
+        data.cannonLevel = player.condition.cannonLevel
+        data.oarLevel = player.condition.oarLevel
+        data.sailLevel = player.condition.sailLevel
+        data.reputation = player.reputation.entries.associate { it.key.name to it.value }.toMutableMap()
 
         val json = Json()
         json.setOutputType(JsonWriter.OutputType.json)
@@ -66,4 +79,7 @@ object SaveManager {
 
     fun resolveCargo(saved: Map<String, Int>): Map<Good, Int> =
         Good.entries.associateWith { saved[it.name] ?: 0 }
+
+    fun resolveReputation(saved: Map<String, Int>): Map<Faction, Int> =
+        Faction.entries.associateWith { saved[it.name] ?: 0 }
 }

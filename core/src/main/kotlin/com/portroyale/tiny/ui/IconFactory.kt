@@ -6,14 +6,19 @@ import com.badlogic.gdx.graphics.Texture
 import com.portroyale.tiny.economy.Good
 
 /** Small hand-drawn pictograms (Pixmap primitives only, no external art dependency) used as
- *  icons in the port hub and its sub-screens. Built once on first use and cached for the
- *  lifetime of the app, same lazy-singleton pattern as AudioManager. */
+ *  icons in the port hub and its sub-screens. Every icon gets a 1px dark outline traced
+ *  automatically around its silhouette in [finish] - the single biggest thing that made these
+ *  read as "pixel art" instead of flat vector shapes, and it's applied uniformly so every icon
+ *  shares the same look regardless of how each one is drawn. Built once on first use and cached
+ *  for the lifetime of the app, same lazy-singleton pattern as AudioManager. */
 object IconFactory {
     private const val SIZE = 64
+    private val OUTLINE_COLOR = Color.valueOf("1A120A")
 
     val market: Texture by lazy { buildMarketIcon() }
     val shipyard: Texture by lazy { buildShipyardIcon() }
     val fortress: Texture by lazy { buildFortressIcon() }
+    val port: Texture by lazy { buildPortIcon() }
 
     private val goodIcons = mutableMapOf<Good, Texture>()
 
@@ -23,6 +28,7 @@ object IconFactory {
         market.dispose()
         shipyard.dispose()
         fortress.dispose()
+        port.dispose()
         goodIcons.values.forEach { it.dispose() }
     }
 
@@ -34,9 +40,29 @@ object IconFactory {
     }
 
     private fun finish(pixmap: Pixmap): Texture {
+        outline(pixmap)
         val texture = Texture(pixmap)
         pixmap.dispose()
         return texture
+    }
+
+    /** Traces a 1px outline around whatever's already drawn: any transparent pixel that's
+     *  4-directionally adjacent to an opaque one gets painted [OUTLINE_COLOR]. Works on any
+     *  silhouette automatically, no matter how many primitives it's built from. */
+    private fun outline(pixmap: Pixmap) {
+        val w = pixmap.width
+        val h = pixmap.height
+        val opaque = Array(w) { x -> BooleanArray(h) { y -> (pixmap.getPixel(x, y) and 0xFF) != 0 } }
+        pixmap.setColor(OUTLINE_COLOR)
+        for (x in 0 until w) {
+            for (y in 0 until h) {
+                if (opaque[x][y]) continue
+                val touchesShape =
+                    (x > 0 && opaque[x - 1][y]) || (x < w - 1 && opaque[x + 1][y]) ||
+                        (y > 0 && opaque[x][y - 1]) || (y < h - 1 && opaque[x][y + 1])
+                if (touchesShape) pixmap.drawPixel(x, y)
+            }
+        }
     }
 
     private fun buildMarketIcon(): Texture {
@@ -56,17 +82,22 @@ object IconFactory {
 
     private fun buildShipyardIcon(): Texture {
         val pm = blank()
-        val metal = Color.valueOf("D7DBE0")
-        pm.setColor(metal)
-        pm.fillRectangle(29, 6, 6, 36)
+        val metalLit = Color.valueOf("D7DBE0")
+        val metalShadow = Color.valueOf("9BA1AA")
+        pm.setColor(metalShadow)
+        pm.fillRectangle(30, 6, 6, 36)
         pm.fillCircle(32, 8, 7)
+        pm.setColor(metalLit)
+        pm.fillRectangle(29, 6, 3, 36)
         pm.setColor(Color.valueOf("1C1B18"))
         pm.fillCircle(32, 8, 3)
-        pm.setColor(metal)
+        pm.setColor(metalShadow)
         pm.fillRectangle(18, 30, 28, 5)
         pm.fillTriangle(18, 33, 32, 55, 18, 47)
         pm.fillTriangle(46, 33, 32, 55, 46, 47)
         pm.fillCircle(32, 55, 5)
+        pm.setColor(metalLit)
+        pm.fillTriangle(18, 33, 25, 55, 18, 47)
         return finish(pm)
     }
 
@@ -87,6 +118,45 @@ object IconFactory {
         pm.setColor(Color.valueOf("A61C1C"))
         pm.fillRectangle(33, 5, 2, 13)
         pm.fillTriangle(35, 6, 35, 13, 46, 9)
+        return finish(pm)
+    }
+
+    /** Map marker for a port: a couple of house silhouettes plus a small flagged dock post,
+     *  standing in for real city art (drawn at a fixed world size, same technique as the ship
+     *  sprite) until the map has room for actual settlement art. */
+    /** Map marker for a port: one bold watchtower silhouette (not the 3-turret Fortress icon -
+     *  distinguishable at a glance, same "stone castle" language) with simple two-tone shading
+     *  for volume. Drawn big and simple on purpose, since this renders tiny on the world map. */
+    private fun buildPortIcon(): Texture {
+        val pm = blank()
+        val stoneDark = Color.valueOf("6E695F")
+        val stoneLit = Color.valueOf("9C958A")
+        val stoneShadow = Color.valueOf("4E4A42")
+
+        // tower body: dark base, lit face on the left, shadow strip down the right edge
+        pm.setColor(stoneDark)
+        pm.fillRectangle(16, 20, 32, 38)
+        pm.setColor(stoneLit)
+        pm.fillRectangle(18, 22, 22, 36)
+        pm.setColor(stoneShadow)
+        pm.fillRectangle(42, 22, 6, 36)
+
+        // crenellations along the top
+        pm.setColor(stoneDark)
+        pm.fillRectangle(16, 12, 8, 10)
+        pm.fillRectangle(28, 12, 8, 10)
+        pm.fillRectangle(40, 12, 8, 10)
+
+        // doorway
+        pm.setColor(Color.valueOf("241609"))
+        pm.fillRectangle(25, 42, 14, 16)
+
+        // flagpole + flag
+        pm.setColor(Color.valueOf("5A4530"))
+        pm.fillRectangle(31, 2, 2, 12)
+        pm.setColor(Color.valueOf("A61C1C"))
+        pm.fillTriangle(33, 3, 33, 11, 46, 6)
+
         return finish(pm)
     }
 

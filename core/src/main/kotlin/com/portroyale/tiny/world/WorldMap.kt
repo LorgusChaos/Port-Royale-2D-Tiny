@@ -9,7 +9,10 @@ data class GridPos(val gx: Int, val gy: Int)
 /**
  * Water/land is sampled directly from the map image's own pixels (blue channel >= green
  * channel reads as water for this relief map's palette), so collision can never drift out of
- * sync with what's actually drawn - no hand-authored coastline polygons to maintain.
+ * sync with what's actually drawn - no hand-authored coastline polygons to maintain. World units
+ * don't have to equal image pixels 1:1 (e.g. MapProjection's world size can be a multiple of the
+ * source image's actual resolution, to make distances feel bigger without re-sourcing art) -
+ * pixelScaleX/Y convert a world coordinate to the right source pixel either way.
  */
 class WorldMap(
     pixmap: Pixmap,
@@ -22,12 +25,14 @@ class WorldMap(
     private val walkable = BooleanArray(gridW * gridH)
 
     init {
+        val pixelScaleX = pixmap.width / worldWidth
+        val pixelScaleY = pixmap.height / worldHeight
         for (gy in 0 until gridH) {
             for (gx in 0 until gridW) {
                 val worldX = (gx + 0.5f) * cellSize
                 val worldY = (gy + 0.5f) * cellSize
-                val px = worldX.toInt().coerceIn(0, pixmap.width - 1)
-                val py = (pixmap.height - worldY).toInt().coerceIn(0, pixmap.height - 1)
+                val px = (worldX * pixelScaleX).toInt().coerceIn(0, pixmap.width - 1)
+                val py = (pixmap.height - worldY * pixelScaleY).toInt().coerceIn(0, pixmap.height - 1)
                 walkable[gy * gridW + gx] = isWaterColor(pixmap.getPixel(px, py))
             }
         }

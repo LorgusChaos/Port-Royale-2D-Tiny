@@ -7,7 +7,6 @@ import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.ui.TextField
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
-import com.badlogic.gdx.utils.viewport.ScreenViewport
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.save.SaveManager
 
@@ -16,7 +15,7 @@ import com.portroyale.tiny.save.SaveManager
  *  otherwise), so there's always a real game to snapshot by the time this screen opens. */
 class SaveGameUI(private val onSave: (saveName: String) -> Unit, private val onBack: () -> Unit) {
 
-    val stage = Stage(ScreenViewport())
+    val stage = Stage(UiScale.viewport())
 
     private val skin = UiSkinFactory.build()
     private val root = Table()

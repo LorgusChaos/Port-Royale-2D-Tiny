@@ -12,7 +12,8 @@ data class ShipType(
     val speed: Float,
     val maxHull: Int,
     val minDamage: Int,
-    val maxDamage: Int
+    val maxDamage: Int,
+    val baseManeuverability: Int
 )
 
 /**
@@ -29,10 +30,11 @@ object ShipTypes {
         tint = Color.WHITE,
         price = 0,
         cargoCapacity = 50,
-        speed = 260f,
+        speed = 130f,
         maxHull = 100,
         minDamage = 15,
-        maxDamage = 25
+        maxDamage = 25,
+        baseManeuverability = 70
     )
     val BRIGANTINE = ShipType(
         name = "Brigantine",
@@ -41,10 +43,11 @@ object ShipTypes {
         tint = Color.WHITE,
         price = 2500,
         cargoCapacity = 90,
-        speed = 230f,
+        speed = 115f,
         maxHull = 150,
         minDamage = 20,
-        maxDamage = 32
+        maxDamage = 32,
+        baseManeuverability = 50
     )
     val GALLEON = ShipType(
         name = "Galleon",
@@ -53,10 +56,11 @@ object ShipTypes {
         tint = Color(0.85f, 0.75f, 0.55f, 1f),
         price = 6000,
         cargoCapacity = 160,
-        speed = 190f,
+        speed = 95f,
         maxHull = 220,
         minDamage = 28,
-        maxDamage = 45
+        maxDamage = 45,
+        baseManeuverability = 30
     )
 
     val ALL = listOf(SLOOP, BRIGANTINE, GALLEON)

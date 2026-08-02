@@ -1,35 +1,46 @@
 package com.portroyale.tiny.ui
 
 import com.badlogic.gdx.Gdx
+import com.badlogic.gdx.Graphics
+import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.scenes.scene2d.Actor
 import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
+import com.badlogic.gdx.scenes.scene2d.Touchable
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Slider
 import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
-import com.badlogic.gdx.utils.viewport.ScreenViewport
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.save.SettingsData
 import com.portroyale.tiny.save.SettingsManager
 
 private val RESOLUTIONS = listOf(1024 to 576, 1280 to 720, 1366 to 768, 1600 to 900, 1920 to 1080)
+private const val LABEL_WIDTH = 150f
+private const val DEFAULT_WINDOWED_WIDTH = 1280
+private const val DEFAULT_WINDOWED_HEIGHT = 720
 
-/** Volume/mute, windowed resolution cycling, and an "updates" stub. Applies changes immediately
- *  (no separate confirm step) and persists them to disk so they survive the next launch. */
+/** Volume/mute, a fullscreen toggle, and an "updates" stub. Windowed mode is always freely
+ *  resizable by dragging the window - Resolution only ever changes anything while Fullscreen is
+ *  on, since a windowed game already has no real use for a fixed resolution list. Applies
+ *  changes immediately (no separate confirm step) and persists them to disk. */
 class SettingsUI(private val onBack: () -> Unit) {
 
-    val stage = Stage(ScreenViewport())
+    val stage = Stage(UiScale.viewport())
 
     private val skin = UiSkinFactory.build()
     private val root = Table()
     private lateinit var volumeSlider: Slider
     private lateinit var muteButton: TextButton
+    private lateinit var fullscreenButton: TextButton
+    private lateinit var resPrevButton: TextButton
+    private lateinit var resNextButton: TextButton
     private lateinit var resolutionLabel: Label
     private lateinit var updateLabel: Label
     private var resolutionIndex = 1
+    private var fullscreen = false
 
     init {
         root.setFillParent(true)
@@ -42,9 +53,12 @@ class SettingsUI(private val onBack: () -> Unit) {
         volumeSlider.value = AudioManager.masterVolume
         updateMuteLabel()
         updateLabel.setText("")
+        fullscreen = Gdx.graphics.isFullscreen
         val current = RESOLUTIONS.indexOfFirst { it.first == Gdx.graphics.width && it.second == Gdx.graphics.height }
         if (current >= 0) resolutionIndex = current
+        updateFullscreenLabel()
         updateResolutionLabel()
+        updateResolutionEnabled()
     }
 
     fun render(delta: Float) {
@@ -65,13 +79,13 @@ class SettingsUI(private val onBack: () -> Unit) {
     private fun buildLayout() {
         val panel = Table()
         panel.background = skin.getDrawable("panel")
-        panel.pad(40f)
+        panel.pad(48f)
 
         val title = Label("Settings", skin)
         title.setFontScale(1.4f)
         panel.add(title).colspan(3).padBottom(24f).row()
 
-        panel.add(Label("Volume:", skin)).left().padRight(10f)
+        panel.add(Label("Volume:", skin)).left().width(LABEL_WIDTH).padRight(10f)
         volumeSlider = Slider(0f, 1f, 0.05f, false, skin)
         volumeSlider.addListener(object : ChangeListener() {
             override fun changed(event: ChangeEvent?, actor: Actor?) {
@@ -81,7 +95,7 @@ class SettingsUI(private val onBack: () -> Unit) {
         })
         panel.add(volumeSlider).width(200f).colspan(2).padBottom(16f).row()
 
-        panel.add(Label("Sound:", skin)).left().padRight(10f)
+        panel.add(Label("Sound:", skin)).left().width(LABEL_WIDTH).padRight(10f)
         muteButton = TextButton("", skin)
         muteButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
@@ -91,29 +105,42 @@ class SettingsUI(private val onBack: () -> Unit) {
                 AudioManager.playClick()
             }
         })
-        panel.add(muteButton).colspan(2).width(120f).left().padBottom(20f).row()
+        panel.add(muteButton).colspan(2).width(120f).left().padBottom(16f).row()
 
-        panel.add(Label("Resolution:", skin)).left().padRight(10f)
+        panel.add(Label("Fullscreen:", skin)).left().width(LABEL_WIDTH).padRight(10f)
+        fullscreenButton = TextButton("", skin)
+        fullscreenButton.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                setFullscreen(!fullscreen)
+                AudioManager.playClick()
+            }
+        })
+        panel.add(fullscreenButton).colspan(2).width(120f).left().padBottom(20f).row()
+
+        panel.add(Label("Resolution:", skin)).left().width(LABEL_WIDTH).padRight(10f)
         val resRow = Table()
-        val prevButton = TextButton("<", skin)
-        prevButton.addListener(object : ClickListener() {
+        resPrevButton = TextButton("<", skin)
+        resPrevButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
                 resolutionIndex = (resolutionIndex - 1 + RESOLUTIONS.size) % RESOLUTIONS.size
                 applyResolution()
             }
         })
         resolutionLabel = Label("", skin)
-        val nextButton = TextButton(">", skin)
-        nextButton.addListener(object : ClickListener() {
+        resNextButton = TextButton(">", skin)
+        resNextButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
                 resolutionIndex = (resolutionIndex + 1) % RESOLUTIONS.size
                 applyResolution()
             }
         })
-        resRow.add(prevButton).width(40f)
-        resRow.add(resolutionLabel).width(140f)
-        resRow.add(nextButton).width(40f)
-        panel.add(resRow).colspan(2).padBottom(20f).row()
+        resRow.add(resPrevButton).width(40f)
+        resRow.add(resolutionLabel).width(150f)
+        resRow.add(resNextButton).width(40f)
+        panel.add(resRow).colspan(2).left().padBottom(6f).row()
+
+        val resHint = Label("(only used while Fullscreen is on)", skin)
+        panel.add(resHint).colspan(3).padBottom(20f).row()
 
         val updateButton = TextButton("Check for Updates", skin)
         updateButton.addListener(object : ClickListener() {
@@ -122,10 +149,10 @@ class SettingsUI(private val onBack: () -> Unit) {
                 updateLabel.setText("You're on the latest version (update checking not yet implemented).")
             }
         })
-        panel.add(updateButton).colspan(3).width(240f).row()
+        panel.add(updateButton).colspan(3).width(260f).row()
         updateLabel = Label("", skin)
         updateLabel.setWrap(true)
-        panel.add(updateLabel).colspan(3).width(320f).padBottom(20f).row()
+        panel.add(updateLabel).colspan(3).width(360f).padBottom(20f).row()
 
         val backButton = TextButton("Back", skin)
         backButton.addListener(object : ClickListener() {
@@ -139,17 +166,52 @@ class SettingsUI(private val onBack: () -> Unit) {
         root.add(panel)
     }
 
+    private fun setFullscreen(value: Boolean) {
+        fullscreen = value
+        if (fullscreen) {
+            val (w, h) = RESOLUTIONS[resolutionIndex]
+            val mode = findDisplayMode(w, h)
+            if (mode != null) Gdx.graphics.setFullscreenMode(mode)
+        } else {
+            Gdx.graphics.setWindowedMode(DEFAULT_WINDOWED_WIDTH, DEFAULT_WINDOWED_HEIGHT)
+        }
+        updateFullscreenLabel()
+        updateResolutionEnabled()
+        persistSettings()
+    }
+
     private fun applyResolution() {
-        val (w, h) = RESOLUTIONS[resolutionIndex]
-        Gdx.graphics.setWindowedMode(w, h)
         updateResolutionLabel()
+        if (fullscreen) {
+            val (w, h) = RESOLUTIONS[resolutionIndex]
+            val mode = findDisplayMode(w, h)
+            if (mode != null) Gdx.graphics.setFullscreenMode(mode)
+        }
         persistSettings()
         AudioManager.playClick()
     }
 
+    private fun findDisplayMode(width: Int, height: Int): Graphics.DisplayMode? =
+        Gdx.graphics.displayModes.filter { it.width == width && it.height == height }
+            .maxByOrNull { it.refreshRate }
+
     private fun updateResolutionLabel() {
         val (w, h) = RESOLUTIONS[resolutionIndex]
         resolutionLabel.setText("${w}x${h}")
+    }
+
+    private fun updateResolutionEnabled() {
+        val touchable = if (fullscreen) Touchable.enabled else Touchable.disabled
+        val color = if (fullscreen) Color.WHITE else Color(1f, 1f, 1f, 0.4f)
+        resPrevButton.touchable = touchable
+        resNextButton.touchable = touchable
+        resPrevButton.color = color
+        resNextButton.color = color
+        resolutionLabel.color = color
+    }
+
+    private fun updateFullscreenLabel() {
+        fullscreenButton.setText(if (fullscreen) "On" else "Off")
     }
 
     private fun updateMuteLabel() {
@@ -161,6 +223,7 @@ class SettingsUI(private val onBack: () -> Unit) {
         val data = SettingsData()
         data.masterVolume = AudioManager.masterVolume
         data.muted = AudioManager.muted
+        data.fullscreen = fullscreen
         data.windowWidth = w
         data.windowHeight = h
         SettingsManager.save(data)

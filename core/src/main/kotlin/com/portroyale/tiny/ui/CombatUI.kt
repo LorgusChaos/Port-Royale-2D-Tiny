@@ -16,7 +16,6 @@ import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.utils.Scaling
-import com.badlogic.gdx.utils.viewport.ScreenViewport
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.combat.CombatOutcome
 import com.portroyale.tiny.combat.CombatState
@@ -30,7 +29,7 @@ private const val SHIP_COLUMN_GAP = 220f
  *  between the two ships to present that instant result over a short, readable beat. */
 class CombatUI(private val onCombatEnd: (CombatOutcome) -> Unit) {
 
-    val stage = Stage(ScreenViewport())
+    val stage = Stage(UiScale.viewport())
 
     private val skin = UiSkinFactory.build()
     private val root = Table()

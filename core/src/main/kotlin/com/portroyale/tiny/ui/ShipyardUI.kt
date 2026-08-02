@@ -12,7 +12,6 @@ import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.utils.Scaling
-import com.badlogic.gdx.utils.viewport.ScreenViewport
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.ships.ShipType
@@ -20,10 +19,15 @@ import com.portroyale.tiny.ships.ShipTypes
 
 /** Shipyard sub-screen: buy a new ship outright (replacing the current one), one row per ship
  *  type with a thumbnail reusing the same sprite shown in-world and in combat. Reached from
- *  PortHubUI; "Back" returns to the hub, not to open sea. */
-class ShipyardUI(private val player: Player, private val onBack: () -> Unit) {
+ *  PortHubUI; "Back" returns to the hub, not to open sea. "Ship Status" opens the condition/
+ *  upgrades/maintenance sub-screen for the currently owned ship. */
+class ShipyardUI(
+    private val player: Player,
+    private val onBack: () -> Unit,
+    private val onOpenStatus: () -> Unit
+) {
 
-    val stage = Stage(ScreenViewport())
+    val stage = Stage(UiScale.viewport())
 
     private val skin = UiSkinFactory.build()
     private val root = Table()
@@ -98,6 +102,15 @@ class ShipyardUI(private val player: Player, private val onBack: () -> Unit) {
             panel.row()
         }
 
+        val statusButton = TextButton("Ship Status", skin)
+        statusButton.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                AudioManager.playClick()
+                onOpenStatus()
+            }
+        })
+        panel.add(statusButton).colspan(4).left().width(160f).padTop(20f).row()
+
         val backButton = TextButton("Back", skin)
         backButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
@@ -105,7 +118,7 @@ class ShipyardUI(private val player: Player, private val onBack: () -> Unit) {
                 onBack()
             }
         })
-        panel.add(backButton).colspan(4).left().width(140f).padTop(20f)
+        panel.add(backButton).colspan(4).left().width(140f).padTop(8f)
 
         root.add(panel)
     }
