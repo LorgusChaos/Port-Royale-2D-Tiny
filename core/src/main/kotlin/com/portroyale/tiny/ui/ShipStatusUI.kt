@@ -24,11 +24,16 @@ private val BAR_BORDER = Color.valueOf("241609")
 private val HULL_FILL = Color.valueOf("8A2E2E")
 private val FOULING_FILL = Color.valueOf("4E6B3A")
 
-/** Shipyard sub-screen: current ship's condition and full stat readout (with bars for hull and
- *  fouling instead of raw numbers alone), plus permanent upgrades (cannons/oars/sails) and
- *  one-off maintenance (hull cleaning, repair). Reached from ShipyardUI; "Back" returns there.
- *  Balance here is a rough first pass, not tuned. */
-class ShipStatusUI(private val player: Player, private val onBack: () -> Unit) {
+/** The primary shipyard screen: current ship's condition and full stat readout (with bars for
+ *  hull and fouling instead of raw numbers alone), plus permanent upgrades (cannons/oars/sails)
+ *  and one-off maintenance (hull cleaning, repair). Reached directly from PortHubUI; "Back"
+ *  returns to the hub. "Buy a Ship" opens ShipyardUI's ship-buying grid as a sub-screen. Balance
+ *  here is a rough first pass, not tuned. */
+class ShipStatusUI(
+    private val player: Player,
+    private val onBack: () -> Unit,
+    private val onOpenShipyard: () -> Unit
+) {
 
     val stage = Stage(UiScale.viewport())
 
@@ -145,6 +150,15 @@ class ShipStatusUI(private val player: Player, private val onBack: () -> Unit) {
         })
         panel.add(repairButton).colspan(2).width(120f).pad(4f).row()
 
+        val buyShipButton = TextButton("Buy a Ship", skin)
+        buyShipButton.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                AudioManager.playClick()
+                onOpenShipyard()
+            }
+        })
+        panel.add(buyShipButton).colspan(3).left().width(160f).padTop(20f).row()
+
         val backButton = TextButton("Back", skin)
         backButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
@@ -152,7 +166,7 @@ class ShipStatusUI(private val player: Player, private val onBack: () -> Unit) {
                 onBack()
             }
         })
-        panel.add(backButton).colspan(3).left().width(140f).padTop(20f)
+        panel.add(backButton).colspan(3).left().width(140f).padTop(8f)
 
         root.add(panel)
     }

@@ -11,20 +11,21 @@ import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
+import com.badlogic.gdx.utils.Align
 import com.badlogic.gdx.utils.Scaling
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.ships.ShipType
 import com.portroyale.tiny.ships.ShipTypes
 
-/** Shipyard sub-screen: buy a new ship outright (replacing the current one), one row per ship
- *  type with a thumbnail reusing the same sprite shown in-world and in combat. Reached from
- *  PortHubUI; "Back" returns to the hub, not to open sea. "Ship Status" opens the condition/
- *  upgrades/maintenance sub-screen for the currently owned ship. */
+/** Ship-buying sub-screen: one row of cards (thumbnail, name, price/stats, Buy), reached from
+ *  ShipStatusUI rather than the other way around - status/maintenance is the primary shipyard
+ *  screen now, this is where you go specifically to replace your ship. "Back" returns to Ship
+ *  Status, not the hub. A single wide row (rather than stacking rows) keeps total height low
+ *  enough to fit without scrolling even with five-plus ship classes. */
 class ShipyardUI(
     private val player: Player,
-    private val onBack: () -> Unit,
-    private val onOpenStatus: () -> Unit
+    private val onBack: () -> Unit
 ) {
 
     val stage = Stage(UiScale.viewport())
@@ -69,47 +70,18 @@ class ShipyardUI(
         panel.background = skin.getDrawable("panel")
         panel.pad(40f)
 
-        val titleLabel = Label("Shipyard", skin)
+        val titleLabel = Label("Shipyard - Ships for Sale", skin)
         titleLabel.setFontScale(1.3f)
-        panel.add(titleLabel).colspan(4).left().padBottom(12f).row()
+        panel.add(titleLabel).left().padBottom(12f).row()
 
         goldLabel = Label("", skin)
-        panel.add(goldLabel).colspan(4).left().padBottom(20f).row()
+        panel.add(goldLabel).left().padBottom(20f).row()
 
+        val shipGrid = Table()
         for (shipType in ShipTypes.ALL) {
-            val thumb = Image(TextureRegionDrawable(TextureRegion(textureFor(shipType.spritePath))))
-            thumb.setScaling(Scaling.fit)
-            thumb.color = shipType.tint
-
-            val statusLabel = Label("", skin)
-            shipStatusLabels[shipType] = statusLabel
-
-            val buyButton = TextButton("Buy", skin)
-            buyButton.addListener(object : ClickListener() {
-                override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                    if (player.canBuyShip(shipType)) {
-                        player.buyShip(shipType)
-                        AudioManager.playCoins()
-                        refresh()
-                    }
-                }
-            })
-
-            panel.add(thumb).size(46f, 78f).pad(6f)
-            panel.add(Label(shipType.name, skin)).left().width(100f).pad(4f)
-            panel.add(statusLabel).width(320f).pad(4f)
-            panel.add(buyButton).width(70f).pad(4f)
-            panel.row()
+            shipGrid.add(buildShipCard(shipType)).top().pad(6f)
         }
-
-        val statusButton = TextButton("Ship Status", skin)
-        statusButton.addListener(object : ClickListener() {
-            override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                AudioManager.playClick()
-                onOpenStatus()
-            }
-        })
-        panel.add(statusButton).colspan(4).left().width(160f).padTop(20f).row()
+        panel.add(shipGrid).padBottom(12f).row()
 
         val backButton = TextButton("Back", skin)
         backButton.addListener(object : ClickListener() {
@@ -118,9 +90,42 @@ class ShipyardUI(
                 onBack()
             }
         })
-        panel.add(backButton).colspan(4).left().width(140f).padTop(8f)
+        panel.add(backButton).left().width(140f).padTop(8f)
 
         root.add(panel)
+    }
+
+    /** One ship's thumbnail/name/stats/Buy button, stacked compactly so two fit side by side. */
+    private fun buildShipCard(shipType: ShipType): Table {
+        val card = Table()
+        card.background = skin.getDrawable("field-frame")
+
+        val thumb = Image(TextureRegionDrawable(TextureRegion(textureFor(shipType.spritePath))))
+        thumb.setScaling(Scaling.fit)
+        thumb.color = shipType.tint
+        card.add(thumb).size(46f, 78f).colspan(2).padTop(6f).row()
+
+        card.add(Label(shipType.name, skin)).colspan(2).padTop(4f).row()
+
+        val statusLabel = Label("", skin)
+        shipStatusLabels[shipType] = statusLabel
+        statusLabel.setWrap(true)
+        statusLabel.setAlignment(com.badlogic.gdx.utils.Align.center)
+        card.add(statusLabel).colspan(2).width(120f).pad(4f).row()
+
+        val buyButton = TextButton("Buy", skin)
+        buyButton.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                if (player.canBuyShip(shipType)) {
+                    player.buyShip(shipType)
+                    AudioManager.playCoins()
+                    refresh()
+                }
+            }
+        })
+        card.add(buyButton).colspan(2).width(90f).padBottom(6f).row()
+
+        return card
     }
 
     private fun refresh() {
@@ -128,9 +133,9 @@ class ShipyardUI(
         for ((shipType, label) in shipStatusLabels) {
             label.setText(
                 if (shipType == player.ship) {
-                    "owned - cargo ${shipType.cargoCapacity}, hull ${shipType.maxHull}"
+                    "owned\ncargo ${shipType.cargoCapacity}, hull ${shipType.maxHull}"
                 } else {
-                    "${shipType.price}g - cargo ${shipType.cargoCapacity}, hull ${shipType.maxHull}"
+                    "${shipType.price}g\ncargo ${shipType.cargoCapacity}, hull ${shipType.maxHull}"
                 }
             )
         }

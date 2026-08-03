@@ -3,15 +3,15 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.2 - early prototype.** Sailing, trading with a living dynamic market, ship
-> upgrades, combat, historical factions with reputation, a living map of AI ships, audio, and a
-> full main menu with save/load are all playable in a rough form; art and content breadth are
-> still early. See [Roadmap](#roadmap).
+> **Status: v0.4.3 - early prototype.** Sailing, trading with a living dynamic market, random sea
+> events, ship upgrades, combat, historical factions with reputation, a living map of AI ships,
+> audio, and a full main menu with save/load are all playable in a rough form; art and content
+> breadth are still early. See [Roadmap](#roadmap).
 
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.2
+## What's here in v0.4.3
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -30,9 +30,9 @@ franchise's creators or publishers.
     drifts over time and responds to the player's own trading, on top of the port's fixed
     historical bias and reputation with its owning faction. Goods notably cheap or scarce at a
     port show as small framed icons under its name on the map;
-  - a **shipyard** - six ship classes (Sloop/Cutter/Barque/Brigantine/Galleon/Man-of-War, each
-    with its own distinct hull livery) purchasable with gold, plus a **Ship Status** screen for
-    upgrades (cannons/oars/sails), hull cleaning, and repairs;
+  - a **shipyard** - Ship Status (condition, upgrades, hull cleaning, repairs) is the primary
+    screen; a "Buy a Ship" sub-screen offers six classes (Sloop/Cutter/Barque/Brigantine/Galleon/
+    Man-of-War, each its own distinct hull livery) as a single row of cards;
   - a **Commandant's Office** - shows standing with each colonial power; still a stub beyond
     that, reserved for future quests.
 - A living map: trade and military ships patrol between their faction's own ports, pirates
@@ -41,6 +41,10 @@ franchise's creators or publishers.
   Ports are a safe harbor - no encounter ever triggers near one. Ships visibly dock - they
   disappear into a port on arrival (a slow purple glow marks where) and reappear only once you
   set off again.
+- Random sea events: 30 invisible, one-time locations scattered across the water (respawning
+  elsewhere after a delay once triggered) for classic encounters - a flavor-text bottle, a gold
+  or goods chest, or a castaway who pays for a lift to a random port. Shown in a dismissible,
+  centered notification; sailing and AI ships pause while one is open.
 - Turn-based combat with animated ship sprites: cannonballs fly between ships, hits flash, shots
   can miss, maneuverability affects flee odds and evasion, and victory/defeat/flee outcomes
   affect gold, cargo, and reputation with the loser's faction.
@@ -95,7 +99,7 @@ First run downloads Gradle and dependencies, so it can take a minute.
 
 ```
 core/    platform-independent game logic (Kotlin)
-  world/     map projection, water/land + pathfinding, port data, roaming AI ships
+  world/     map projection, water/land + pathfinding, port data, roaming AI ships, sea events
   factions/  colonial powers and reputation
   economy/   goods, player wallet/cargo, dynamic per-port market state
   audio/     music/SFX playback
@@ -122,7 +126,9 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
 - [x] **M6b** - a living per-port market economy, ships that visibly dock, and a UI/map polish
       pass (font, scaling, zoom-constant labels)
 - [x] **M6c** - fixed ships rendering stern-first, six distinct purchasable ship classes instead
-      of three *(this release)*
+      of three
+- [x] **M6d** - random sea events with a new dismissible notification UI, restructured shipyard
+      navigation *(this release)*
 - [ ] **M7** - packaging, Android/macOS builds
 
 ## Credits

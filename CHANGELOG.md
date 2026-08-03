@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.3] - 2026-08-04
+
+### Added
+- Random sea events: 30 invisible locations scattered across the water, each a one-time trigger
+  (respawning elsewhere after 45-120s) for a classic genre encounter - a flavor-text bottle, a
+  gold or goods chest, or a castaway who needs a lift to a random port for a reward. Results show
+  in a new centered, dismissible notification (with a reward icon and a close button) - the
+  game's first non-modal notification mechanism. Sailing, AI ships, and encounters all pause
+  while a notification is open, so nothing can happen unseen behind it.
+- Shipyard restructure: the primary shipyard screen is now Ship Status (condition/upgrades/
+  maintenance) instead of the ship-buying list; buying a ship is now a "Buy a Ship" sub-screen,
+  laid out as a single horizontal row of cards instead of a column, so it fits without scrolling.
+
+### Fixed
+- A click near a passing ship while plotting a course could be silently hijacked into chase mode
+  (straight-line pursuit, no obstacle avoidance) - the hunt-trigger radius is now much smaller
+  and separate from the port-click radius.
+
 ## [0.4.2] - 2026-08-03
 
 ### Fixed

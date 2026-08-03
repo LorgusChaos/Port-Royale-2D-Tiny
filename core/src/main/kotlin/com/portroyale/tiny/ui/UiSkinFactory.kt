@@ -46,6 +46,9 @@ object UiSkinFactory {
         skin.add("panel", borderedDrawable(PANEL_FILL, PANEL_BORDER, 3), Drawable::class.java)
         skin.add("button-up", borderedDrawable(BUTTON_FILL, CHROME_BORDER, 2), Drawable::class.java)
         skin.add("button-down", borderedDrawable(BUTTON_DOWN_FILL, CHROME_BORDER, 2), Drawable::class.java)
+        // A subtler bordered box for grouping content within a panel (e.g. one card in a grid of
+        // several), distinct from the panel background itself.
+        skin.add("field-frame", borderedDrawable(FIELD_FILL, CHROME_BORDER, 2), Drawable::class.java)
 
         val labelStyle = Label.LabelStyle(font, Color.BLACK)
         skin.add("default", labelStyle)

@@ -5,6 +5,7 @@ import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.Input.Buttons
 import com.badlogic.gdx.Input.Keys
 import com.badlogic.gdx.InputAdapter
+import com.badlogic.gdx.InputMultiplexer
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.OrthographicCamera
@@ -33,6 +34,7 @@ import com.portroyale.tiny.world.AiShip
 import com.portroyale.tiny.world.AiShipFactory
 import com.portroyale.tiny.world.AiShipRole
 import com.portroyale.tiny.ui.CombatUI
+import com.portroyale.tiny.ui.EventToastUI
 import com.portroyale.tiny.ui.FortressUI
 import com.portroyale.tiny.ui.IconFactory
 import com.portroyale.tiny.ui.LoadGameUI
@@ -47,6 +49,9 @@ import com.portroyale.tiny.ui.ShipyardUI
 import com.portroyale.tiny.ui.UiSkinFactory
 import com.portroyale.tiny.world.MapProjection
 import com.portroyale.tiny.world.Ports
+import com.portroyale.tiny.world.SeaEventPoint
+import com.portroyale.tiny.world.SeaEventSlot
+import com.portroyale.tiny.world.SeaEventType
 import com.portroyale.tiny.world.WorldMap
 import kotlin.math.sin
 
@@ -80,6 +85,10 @@ private const val DOCKED_GLOW_MAX_ALPHA = 1f
 private const val DOCKED_GLOW_PULSE_SPEED = 2.4f // radians/sec - a full pulse cycle takes ~2.6s
 private const val ARRIVE_THRESHOLD = 14f
 private const val PORT_CLICK_RADIUS = 90f
+// Deliberately much smaller than PORT_CLICK_RADIUS - a click has to land almost exactly on a
+// ship to start a chase, so plotting a normal course near a passing ship doesn't accidentally
+// hijack the click into hunt mode (which chases in a straight line with no obstacle avoidance).
+private const val SHIP_HUNT_CLICK_RADIUS = 3f
 private const val BASE_SHIP_SPRITE_WIDTH = 13f
 private const val PORT_ICON_SIZE = 26f
 private const val DEFEAT_GOLD_PENALTY = 0.7f
@@ -92,6 +101,25 @@ private const val MILITARY_SHIPS_PER_FACTION = 1
 private const val PIRATE_SHIP_COUNT = 4
 private const val REP_LOSS_TRADE = -8
 private const val REP_LOSS_MILITARY = -15
+private const val SEA_EVENT_POOL_SIZE = 30
+private const val SEA_EVENT_TRIGGER_RADIUS = 90f
+private const val SEA_EVENT_RESPAWN_MIN = 45f
+private const val SEA_EVENT_RESPAWN_MAX = 120f
+private const val SEA_EVENT_SPAWN_ATTEMPTS = 200
+private const val CHEST_GOLD_MIN = 200
+private const val CHEST_GOLD_MAX = 800
+private const val CHEST_GOODS_MIN_QTY = 1
+private const val CHEST_GOODS_MAX_QTY = 3
+private const val CHEST_FALLBACK_GOLD = 100 // paid instead of goods when the hold is full
+private const val CASTAWAY_REWARD_MIN = 300
+private const val CASTAWAY_REWARD_MAX = 700
+
+private val BOTTLE_MESSAGES = listOf(
+    "You find a bottle bobbing in the waves. A note inside reads: 'Fair winds to whoever finds this. - A forgotten sailor'",
+    "A bottle of rum drifts past your hull. You drink it. Nothing else happens.",
+    "An old bottle, corked and sealed with wax. Inside: a faded, illegible scrap of a map.",
+    "You fish a bottle out of the water. The note inside has dissolved to an unreadable smear."
+)
 private const val REJECTED_CLICK_MARKER_DURATION = 0.8f
 private const val REJECTED_CLICK_MARKER_SIZE = 20f
 private const val MIN_ZOOM = 0.075f
@@ -145,6 +173,7 @@ class PortRoyaleGame : ApplicationAdapter() {
     private lateinit var loadGameUI: LoadGameUI
     private lateinit var saveGameUI: SaveGameUI
     private lateinit var settingsUI: SettingsUI
+    private lateinit var eventToastUI: EventToastUI
 
     private val player = Player()
     private var gameMode = GameMode.SAILING
@@ -154,6 +183,12 @@ class PortRoyaleGame : ApplicationAdapter() {
     private val aiShips = mutableListOf<AiShip>()
     private var huntedShip: AiShip? = null
     private var currentAiTarget: AiShip? = null
+
+    // Fixed-size pool of invisible random-event locations scattered across the water; each slot
+    // independently holds a live point or counts down to respawning one somewhere else (see
+    // updateSeaEvents()). A castaway event sets passengerDestination until delivered.
+    private val seaEventSlots = List(SEA_EVENT_POOL_SIZE) { SeaEventSlot() }
+    private var passengerDestination: ResolvedPort? = null
 
     private var appState = AppState.MENU
     private var menuScreen = MenuScreen.MAIN
@@ -188,6 +223,10 @@ class PortRoyaleGame : ApplicationAdapter() {
             return true
         }
     }
+    // The toast's close button needs Stage input handling too, but sailing itself is driven by
+    // the raw InputAdapter above rather than a Stage - a multiplexer lets both listen at once
+    // (the toast gets first crack, so its close button doesn't leak through as a ship click).
+    private lateinit var sailingWithToastInputProcessor: InputMultiplexer
 
     override fun create() {
         shapeRenderer = ShapeRenderer()
@@ -221,17 +260,18 @@ class PortRoyaleGame : ApplicationAdapter() {
             ResolvedPort(port, pos, approach)
         }
         spawnAiShips()
+        seaEventSlots.forEach { spawnSeaEvent(it) }
 
         portHubUI = PortHubUI(
             player,
             onOpenMarket = ::openMarket,
-            onOpenShipyard = ::openShipyard,
+            onOpenShipyard = ::openShipStatus,
             onOpenFortress = ::openFortress,
             onSetSail = ::leavePort
         )
         marketUI = MarketUI(player, onBack = ::openHub)
-        shipyardUI = ShipyardUI(player, onBack = ::openHub, onOpenStatus = ::openShipStatus)
-        shipStatusUI = ShipStatusUI(player, onBack = ::openShipyard)
+        shipyardUI = ShipyardUI(player, onBack = ::openShipStatus)
+        shipStatusUI = ShipStatusUI(player, onBack = ::openHub, onOpenShipyard = ::openShipyard)
         fortressUI = FortressUI(player, onBack = ::openHub)
         combatUI = CombatUI(onCombatEnd = ::finishCombat)
 
@@ -246,6 +286,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         loadGameUI = LoadGameUI(onLoad = ::loadGame, onBack = ::showMainMenu)
         saveGameUI = SaveGameUI(onSave = ::saveGame, onBack = ::showMainMenu)
         settingsUI = SettingsUI(onBack = ::showMainMenu)
+        eventToastUI = EventToastUI()
+        sailingWithToastInputProcessor = InputMultiplexer(eventToastUI.stage, sailingInputProcessor)
 
         val settings = SettingsManager.load()
         AudioManager.setMasterVolume(settings.masterVolume)
@@ -281,6 +323,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         loadGameUI.resize(width, height)
         saveGameUI.resize(width, height)
         settingsUI.resize(width, height)
+        eventToastUI.resize(width, height)
     }
 
     override fun render() {
@@ -299,11 +342,15 @@ class PortRoyaleGame : ApplicationAdapter() {
             }
         }
 
-        if (appState == AppState.PLAYING && gameMode == GameMode.SAILING) {
+        // A sea-event toast freezes sailing entirely while it's up - ship movement, AI ships,
+        // encounters, and further events all wait, so nothing can happen unseen behind it and a
+        // click meant for its close button can't also be read as a course-setting click.
+        if (appState == AppState.PLAYING && gameMode == GameMode.SAILING && !eventToastUI.isShowing) {
             handleInput()
             if (huntedShip != null) updateShipHunt(Gdx.graphics.deltaTime) else updateAutopilot(Gdx.graphics.deltaTime)
             updateAiShips(Gdx.graphics.deltaTime)
             checkAiEncounters()
+            updateSeaEvents(Gdx.graphics.deltaTime)
             if (!updateDragPan()) updateCameraPan(Gdx.graphics.deltaTime)
             player.condition.accumulateFouling(Gdx.graphics.deltaTime)
         }
@@ -347,6 +394,9 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
 
         if (gameActive) drawMinimap()
+        // Not gated to GameMode.SAILING: a delivery toast can be triggered by arriveAtPort()
+        // switching to GameMode.IN_PORT earlier in this same frame, before this draw pass runs.
+        if (appState == AppState.PLAYING) eventToastUI.render(Gdx.graphics.deltaTime)
 
         if (appState == AppState.PLAYING) {
             when (gameMode) {
@@ -399,7 +449,7 @@ class PortRoyaleGame : ApplicationAdapter() {
             viewport.unproject(touchPoint)
 
             val nearestShip = aiShips.minByOrNull { it.position.dst(touchPoint) }
-            if (nearestShip != null && nearestShip.position.dst(touchPoint) <= PORT_CLICK_RADIUS) {
+            if (nearestShip != null && nearestShip.position.dst(touchPoint) <= SHIP_HUNT_CLICK_RADIUS) {
                 huntedShip = nearestShip
                 navMode = NavMode.MANUAL
                 path = emptyList()
@@ -564,6 +614,15 @@ class PortRoyaleGame : ApplicationAdapter() {
     }
 
     private fun arriveAtPort(port: ResolvedPort) {
+        if (port === passengerDestination) {
+            val reward = MathUtils.random(CASTAWAY_REWARD_MIN, CASTAWAY_REWARD_MAX)
+            player.gold += reward
+            passengerDestination = null
+            eventToastUI.show(
+                "You deliver the castaway to ${port.port.name}. Grateful, they press ${reward}g into your hand before disappearing into the crowd.",
+                IconFactory.coin
+            )
+        }
         gameMode = GameMode.IN_PORT
         currentPortName = port.port.name
         portPulseTime = 0f
@@ -605,7 +664,7 @@ class PortRoyaleGame : ApplicationAdapter() {
 
     private fun leavePort() {
         gameMode = GameMode.SAILING
-        Gdx.input.inputProcessor = sailingInputProcessor
+        Gdx.input.inputProcessor = sailingWithToastInputProcessor
         AudioManager.playSailingMusic()
     }
 
@@ -634,7 +693,7 @@ class PortRoyaleGame : ApplicationAdapter() {
     private fun resumeGame() {
         appState = AppState.PLAYING
         Gdx.input.inputProcessor = when (gameMode) {
-            GameMode.SAILING -> sailingInputProcessor
+            GameMode.SAILING -> sailingWithToastInputProcessor
             GameMode.IN_PORT -> when (portScreen) {
                 PortScreen.HUB -> portHubUI.stage
                 PortScreen.MARKET -> marketUI.stage
@@ -679,7 +738,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         gameActive = true
         appState = AppState.PLAYING
         gameMode = GameMode.SAILING
-        Gdx.input.inputProcessor = sailingInputProcessor
+        Gdx.input.inputProcessor = sailingWithToastInputProcessor
         AudioManager.playSailingMusic()
     }
 
@@ -796,6 +855,85 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
     }
 
+    /** One tick of the fixed-size sea-event pool: live points check for contact with the player,
+     *  spent points count down to respawning somewhere new. Deliberately not distance-culled to
+     *  "nearby" points only - the pool is small (SEA_EVENT_POOL_SIZE), so checking all of it every
+     *  frame is cheap. */
+    private fun updateSeaEvents(delta: Float) {
+        for (slot in seaEventSlots) {
+            val point = slot.point
+            if (point != null) {
+                if (shipPosition.dst(point.position) < SEA_EVENT_TRIGGER_RADIUS) {
+                    triggerSeaEvent(slot, point)
+                }
+            } else {
+                slot.respawnTimer -= delta
+                if (slot.respawnTimer <= 0f) spawnSeaEvent(slot)
+            }
+        }
+    }
+
+    private fun spawnSeaEvent(slot: SeaEventSlot) {
+        var candidate: Vector2? = null
+        var attempt = 0
+        while (candidate == null && attempt < SEA_EVENT_SPAWN_ATTEMPTS) {
+            val x = MathUtils.random(0f, MapProjection.MAP_WIDTH)
+            val y = MathUtils.random(0f, MapProjection.MAP_HEIGHT)
+            if (worldMap.isWater(x, y) && !isNearAnyPort(Vector2(x, y))) {
+                candidate = Vector2(x, y)
+            }
+            attempt++
+        }
+        val position = candidate ?: run {
+            // Water-starved random draw (rare) - retry on the next tick instead of this frame.
+            slot.respawnTimer = 1f
+            return
+        }
+        // A castaway is only offered while the player isn't already carrying one, so there's
+        // never ambiguity about which port a "deliver the castaway" arrival refers to.
+        val availableTypes = if (passengerDestination == null) {
+            SeaEventType.entries
+        } else {
+            SeaEventType.entries.filter { it != SeaEventType.CASTAWAY }
+        }
+        slot.point = SeaEventPoint(position, availableTypes.random())
+    }
+
+    private fun triggerSeaEvent(slot: SeaEventSlot, point: SeaEventPoint) {
+        when (point.type) {
+            SeaEventType.BOTTLE -> eventToastUI.show(BOTTLE_MESSAGES.random(), IconFactory.bottle)
+            SeaEventType.CHEST_GOLD -> {
+                val amount = MathUtils.random(CHEST_GOLD_MIN, CHEST_GOLD_MAX)
+                player.gold += amount
+                eventToastUI.show("You spot a floating chest and haul it aboard - ${amount}g inside!", IconFactory.coin)
+            }
+            SeaEventType.CHEST_GOODS -> {
+                if (player.cargoUsed >= player.cargoCapacity) {
+                    player.gold += CHEST_FALLBACK_GOLD
+                    eventToastUI.show(
+                        "You spot a floating chest, but your hold is full - you salvage only ${CHEST_FALLBACK_GOLD}g worth of loose coin from it.",
+                        IconFactory.coin
+                    )
+                } else {
+                    val good = Good.entries.random()
+                    val qty = MathUtils.random(CHEST_GOODS_MIN_QTY, CHEST_GOODS_MAX_QTY)
+                    player.cargo[good] = (player.cargo[good] ?: 0) + qty
+                    eventToastUI.show("A half-sunken crate yields $qty ${good.displayName}!", IconFactory.iconFor(good))
+                }
+            }
+            SeaEventType.CASTAWAY -> {
+                val destination = resolvedPorts.random()
+                passengerDestination = destination
+                eventToastUI.show(
+                    "You pull a half-drowned sailor from the water. They beg you to take them to ${destination.port.name}.",
+                    IconFactory.castaway
+                )
+            }
+        }
+        slot.point = null
+        slot.respawnTimer = MathUtils.random(SEA_EVENT_RESPAWN_MIN, SEA_EVENT_RESPAWN_MAX)
+    }
+
     private fun startAiCombat(ship: AiShip) {
         gameMode = GameMode.COMBAT
         currentAiTarget = ship
@@ -846,7 +984,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
         currentAiTarget = null
         gameMode = GameMode.SAILING
-        Gdx.input.inputProcessor = sailingInputProcessor
+        Gdx.input.inputProcessor = sailingWithToastInputProcessor
         AudioManager.stopCombatMusic()
         AudioManager.playSailingMusic()
     }
@@ -1106,6 +1244,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         loadGameUI.dispose()
         saveGameUI.dispose()
         settingsUI.dispose()
+        eventToastUI.dispose()
         AudioManager.dispose()
         IconFactory.dispose()
         UiSkinFactory.disposeSharedFont()

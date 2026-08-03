@@ -26,6 +26,11 @@ object IconFactory {
     /** Soft, smoothly-filtered glow marking the port the player's ship is currently docked at -
      *  deliberately not run through [finish]'s pixel-art outline, since a glow should be soft. */
     val dockedGlow: Texture by lazy { buildGlowIcon() }
+    /** Reward icons for the sea-event toast (see EventToastUI) - gold/goods chests reuse
+     *  [coin]/a good's own icon, so these two cover the bottle and castaway cases specifically. */
+    val coin: Texture by lazy { buildCoinIcon() }
+    val bottle: Texture by lazy { buildBottleIcon() }
+    val castaway: Texture by lazy { buildCastawayIcon() }
 
     private val goodIcons = mutableMapOf<Good, Texture>()
 
@@ -39,6 +44,9 @@ object IconFactory {
         surplusFrame.dispose()
         shortageFrame.dispose()
         dockedGlow.dispose()
+        coin.dispose()
+        bottle.dispose()
+        castaway.dispose()
         goodIcons.values.forEach { it.dispose() }
     }
 
@@ -196,6 +204,45 @@ object IconFactory {
         pm.dispose()
         texture.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
         return texture
+    }
+
+    private fun buildCoinIcon(): Texture {
+        val pm = blank()
+        pm.setColor(Color.valueOf("8A6A1E"))
+        pm.fillCircle(32, 32, 22)
+        pm.setColor(Color.valueOf("EFCB61"))
+        pm.fillCircle(32, 32, 18)
+        pm.setColor(Color.valueOf("8A6A1E"))
+        pm.drawCircle(32, 32, 13)
+        return finish(pm)
+    }
+
+    private fun buildBottleIcon(): Texture {
+        val pm = blank()
+        pm.setColor(Color.valueOf("2E6E4A"))
+        pm.fillRectangle(27, 8, 10, 12)
+        pm.fillTriangle(20, 20, 44, 20, 32, 12)
+        pm.fillRectangle(18, 20, 28, 34)
+        pm.setColor(Color.valueOf("4A9E6E"))
+        pm.fillRectangle(21, 26, 22, 24)
+        pm.setColor(Color.valueOf("D8C8A8"))
+        pm.fillRectangle(25, 6, 14, 6)
+        return finish(pm)
+    }
+
+    private fun buildCastawayIcon(): Texture {
+        val pm = blank()
+        val skin = Color.valueOf("C98A5E")
+        val water = Color.valueOf("3E7EA8")
+        pm.setColor(water)
+        pm.fillRectangle(4, 44, 56, 12)
+        pm.setColor(skin)
+        pm.fillCircle(32, 22, 12)
+        pm.fillRectangle(22, 32, 20, 16)
+        pm.setColor(Color.valueOf("8A5A2E"))
+        pm.fillRectangle(12, 40, 14, 6)
+        pm.fillRectangle(38, 40, 14, 6)
+        return finish(pm)
     }
 
     private fun buildGoodIcon(good: Good): Texture {
