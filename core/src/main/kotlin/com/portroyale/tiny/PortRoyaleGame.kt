@@ -22,6 +22,7 @@ import com.portroyale.tiny.combat.CombatOutcome
 import com.portroyale.tiny.combat.CombatState
 import com.portroyale.tiny.combat.ShipCombatant
 import com.portroyale.tiny.economy.Good
+import com.portroyale.tiny.economy.MarketState
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.factions.REPUTATION_HOSTILE_THRESHOLD
@@ -47,12 +48,36 @@ import com.portroyale.tiny.ui.UiSkinFactory
 import com.portroyale.tiny.world.MapProjection
 import com.portroyale.tiny.world.Ports
 import com.portroyale.tiny.world.WorldMap
+import kotlin.math.sin
 
 // Arrive-thresholds track WorldMap's pathfinding cellSize (10f, unrelated to MAP_WIDTH/HEIGHT),
 // not the map's overall scale - too generous relative to cellSize and a ship "arrives" at a
 // waypoint from far enough away to cut the next corner straight into land. Everything else below
 // (click/engage/safe radii, zoom range) scales with the map, since those are about screen-space
 // interaction feel rather than the pathfinding grid.
+// These are target ON-SCREEN pixel sizes, not world units - drawMarketIndicators()/
+// drawPortLabels() convert them to world units fresh every frame based on the current
+// camera.zoom, so labels/icons read at the same physical size on screen no matter how far the
+// camera is zoomed in or out (earlier attempts that scaled a *world-unit* constant by zoom kept
+// the size merely consistent, not actually reasonable - it came out either illegibly tiny or
+// screen-filling huge depending which zoom level the base constant happened to be tuned at).
+private const val PORT_LABEL_TARGET_PX = 29.25f
+private const val MARKET_ICON_TARGET_PX = PORT_LABEL_TARGET_PX * 1.3f
+private const val MARKET_ICON_GAP_TARGET_PX = MARKET_ICON_TARGET_PX * 0.15f
+private const val MARKET_ICON_OVERLAP_TARGET_PX = MARKET_ICON_TARGET_PX * 0.45f
+private const val TOOLTIP_GAP_TARGET_PX = 6f
+// The market-icon row is anchored to the port NAME label (not the port icon), positioned this
+// many target-pixels below its bottom edge, starting at the label's own left edge.
+private const val MARKET_ICON_LABEL_GAP_TARGET_PX = 5f
+private const val PORT_LABEL_OFFSET_X = 18f
+private const val PORT_LABEL_OFFSET_Y = 8f
+private const val MINIMAP_BORDER_WIDTH = 4f
+private const val MARKET_ICON_DIM_ALPHA = 0.35f
+private const val DOCKED_GLOW_MIN_SIZE = 50f
+private const val DOCKED_GLOW_MAX_SIZE = 90f
+private const val DOCKED_GLOW_MIN_ALPHA = 0.5f
+private const val DOCKED_GLOW_MAX_ALPHA = 1f
+private const val DOCKED_GLOW_PULSE_SPEED = 2.4f // radians/sec - a full pulse cycle takes ~2.6s
 private const val ARRIVE_THRESHOLD = 14f
 private const val PORT_CLICK_RADIUS = 90f
 private const val BASE_SHIP_SPRITE_WIDTH = 13f
@@ -101,6 +126,7 @@ class PortRoyaleGame : ApplicationAdapter() {
     private lateinit var shapeRenderer: ShapeRenderer
     private lateinit var batch: SpriteBatch
     private lateinit var portLabelFont: BitmapFont
+    private var portLabelBaseLineHeight = 0f
     private lateinit var mapTexture: Texture
     private lateinit var shipTextures: Map<String, Texture>
     private lateinit var camera: OrthographicCamera
@@ -133,6 +159,13 @@ class PortRoyaleGame : ApplicationAdapter() {
     private var menuScreen = MenuScreen.MAIN
     private var gameActive = false
     private var captainName = ""
+    private var portPulseTime = 0f
+    private var hoveredGood: Good? = null
+    private val hoveredGoodPos = Vector2()
+    // False from the moment the player docks until they actually set off again (manual input or
+    // a course click) - "Set Sail" alone doesn't reveal the ship, it's still tied up at the
+    // dock until the player does something that actually moves it.
+    private var shipVisible = true
 
     private val shipPosition = Vector2()
     private var shipHeadingDeg = 0f
@@ -159,9 +192,12 @@ class PortRoyaleGame : ApplicationAdapter() {
     override fun create() {
         shapeRenderer = ShapeRenderer()
         batch = SpriteBatch()
-        portLabelFont = BitmapFont()
-        portLabelFont.color = Color.WHITE
-        portLabelFont.data.setScale(1.8f)
+        // Same TTF as the rest of the game's UI (see UiSkinFactory), but its OWN independent
+        // BitmapFont instance - map labels rescale every frame based on camera.zoom, and sharing
+        // UiSkinFactory's font object would drag every Scene2D screen's text along with it.
+        portLabelFont = UiSkinFactory.generateFont(42)
+        portLabelFont.color = Color.BLACK
+        portLabelBaseLineHeight = portLabelFont.data.lineHeight
 
         val mapPixmap = Pixmap(Gdx.files.internal("maps/caribbean_relief.png"))
         mapTexture = Texture(mapPixmap)
@@ -256,6 +292,13 @@ class PortRoyaleGame : ApplicationAdapter() {
             handleEscape()
         }
 
+        if (appState == AppState.PLAYING) {
+            MarketState.update(Gdx.graphics.deltaTime)
+            if (!shipVisible) {
+                portPulseTime += Gdx.graphics.deltaTime
+            }
+        }
+
         if (appState == AppState.PLAYING && gameMode == GameMode.SAILING) {
             handleInput()
             if (huntedShip != null) updateShipHunt(Gdx.graphics.deltaTime) else updateAutopilot(Gdx.graphics.deltaTime)
@@ -279,12 +322,15 @@ class PortRoyaleGame : ApplicationAdapter() {
         batch.end()
 
         batch.begin()
+        if (gameActive && !shipVisible) drawDockedGlow()
         drawPorts()
         if (gameActive) {
             drawAiShips()
-            drawShip()
+            if (shipVisible) drawShip()
+            drawMarketIndicators()
         }
         drawPortLabels()
+        if (gameActive) drawHoveredGoodTooltip()
         batch.end()
 
         val showPath = gameMode == GameMode.SAILING && navMode == NavMode.AUTOPILOT && path.isNotEmpty()
@@ -338,6 +384,7 @@ class PortRoyaleGame : ApplicationAdapter() {
             path = emptyList()
             destinationPort = null
             huntedShip = null
+            shipVisible = true
             val len = Vector2(moveX, moveY).len()
             moveX /= len
             moveY /= len
@@ -357,6 +404,7 @@ class PortRoyaleGame : ApplicationAdapter() {
                 navMode = NavMode.MANUAL
                 path = emptyList()
                 destinationPort = null
+                shipVisible = true
                 return
             }
 
@@ -382,6 +430,7 @@ class PortRoyaleGame : ApplicationAdapter() {
                     navMode = NavMode.AUTOPILOT
                     destinationPort = targetPort
                     huntedShip = null
+                    shipVisible = true
                 } else {
                     markRejectedClick()
                 }
@@ -517,6 +566,8 @@ class PortRoyaleGame : ApplicationAdapter() {
     private fun arriveAtPort(port: ResolvedPort) {
         gameMode = GameMode.IN_PORT
         currentPortName = port.port.name
+        portPulseTime = 0f
+        shipVisible = false
         AudioManager.pauseSailingMusic()
         AudioManager.playPortArrival()
         openHub()
@@ -624,6 +675,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         navMode = NavMode.MANUAL
         path = emptyList()
         destinationPort = null
+        shipVisible = true
         gameActive = true
         appState = AppState.PLAYING
         gameMode = GameMode.SAILING
@@ -634,6 +686,7 @@ class PortRoyaleGame : ApplicationAdapter() {
     private fun startNewGame(name: String) {
         captainName = name.ifBlank { "Captain" }
         player.reset()
+        MarketState.reset()
         shipPosition.set(defaultStartPosition())
         beginPlaying()
     }
@@ -650,6 +703,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         player.condition.oarLevel = data.oarLevel
         player.condition.sailLevel = data.sailLevel
         SaveManager.resolveReputation(data.reputation).forEach { (faction, value) -> player.reputation[faction] = value }
+        MarketState.restore(data.marketState)
         shipPosition.set(data.shipX, data.shipY)
         beginPlaying()
     }
@@ -746,6 +800,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         gameMode = GameMode.COMBAT
         currentAiTarget = ship
         huntedShip = null
+        shipVisible = true
         AudioManager.playCombatMusic()
         val playerStats = ShipCombatant(
             name = player.ship.name,
@@ -843,9 +898,91 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
     }
 
-    private fun drawPortLabels() {
+    /** A small row of goods icons under each port that's currently notably cheap (green frame)
+     *  or notably expensive (red frame) there - MarketState.notableGoods already caps how many
+     *  show at once, so this never needs to worry about clutter itself. */
+    /** Draws each port's surplus/shortage row, dims an icon if the player's ship sprite is
+     *  currently over it (so the ship stays readable), and tracks whether the cursor is
+     *  hovering one so render() can draw a name tooltip on top of everything else afterward. */
+    private fun drawMarketIndicators() {
+        hoveredGood = null
+        val mouseWorld = Vector2(Gdx.input.x.toFloat(), Gdx.input.y.toFloat())
+        viewport.unproject(mouseWorld)
+
+        // Icon SIZE is derived fresh from a target ON-SCREEN pixel size every frame (see
+        // worldUnitsPerScreenPixel()), so icons read the same physical size regardless of zoom.
+        // The row is anchored to the port NAME LABEL (same left edge, a small gap below its
+        // bottom) rather than to the port icon, so it visibly reads as "belonging" to the label.
+        val upp = worldUnitsPerScreenPixel()
+        val iconSize = MARKET_ICON_TARGET_PX * upp
+        val iconGap = MARKET_ICON_GAP_TARGET_PX * upp
+        val overlapRadius = MARKET_ICON_OVERLAP_TARGET_PX * upp
+        val rowGap = MARKET_ICON_LABEL_GAP_TARGET_PX * upp
+        val labelHeight = portLabelWorldHeight()
+
         for (resolved in resolvedPorts) {
-            portLabelFont.draw(batch, resolved.port.name, resolved.worldPos.x + 18f, resolved.worldPos.y + 8f)
+            val notable = MarketState.notableGoods(resolved.port.name)
+            if (notable.isEmpty()) continue
+
+            var x = resolved.worldPos.x + PORT_LABEL_OFFSET_X
+            val y = resolved.worldPos.y + PORT_LABEL_OFFSET_Y - labelHeight - rowGap - iconSize
+
+            for ((good, isSurplus) in notable) {
+                val centerX = x + iconSize / 2f
+                val centerY = y + iconSize / 2f
+                val overlapsShip = gameMode == GameMode.SAILING &&
+                    shipPosition.dst(centerX, centerY) < overlapRadius
+                val alpha = if (overlapsShip) MARKET_ICON_DIM_ALPHA else 1f
+
+                batch.color = Color(1f, 1f, 1f, alpha)
+                val frame = if (isSurplus) IconFactory.surplusFrame else IconFactory.shortageFrame
+                batch.draw(frame, x, y, iconSize, iconSize)
+                val inset = iconSize * 0.15f
+                batch.draw(IconFactory.iconFor(good), x + inset, y + inset, iconSize - inset * 2f, iconSize - inset * 2f)
+                batch.color = Color.WHITE
+
+                if (mouseWorld.x in x..(x + iconSize) && mouseWorld.y in y..(y + iconSize)) {
+                    hoveredGood = good
+                    hoveredGoodPos.set(x, y)
+                }
+
+                x += iconSize + iconGap
+            }
+        }
+    }
+
+    private fun drawHoveredGoodTooltip() {
+        val good = hoveredGood ?: return
+        val upp = worldUnitsPerScreenPixel()
+        val iconSize = MARKET_ICON_TARGET_PX * upp
+        portLabelFont.draw(batch, good.displayName, hoveredGoodPos.x, hoveredGoodPos.y + iconSize + TOOLTIP_GAP_TARGET_PX * upp)
+    }
+
+    /** World units per screen pixel at the current zoom - multiplying a target ON-SCREEN pixel
+     *  size by this gives the world-space size that will render at exactly that many pixels,
+     *  regardless of zoom. Derived from the same relationship FitViewport itself uses internally
+     *  (visible world width = camera.viewportWidth * zoom, mapped onto viewport.screenWidth
+     *  pixels), so it stays correct across window resizes too. */
+    private fun worldUnitsPerScreenPixel(): Float =
+        camera.viewportWidth * camera.zoom / viewport.screenWidth.toFloat()
+
+    /** World-space height a port label renders at right now, for drawMarketIndicators() to stack
+     *  the goods row underneath it. */
+    private fun portLabelWorldHeight(): Float = PORT_LABEL_TARGET_PX * worldUnitsPerScreenPixel()
+
+    private fun drawPortLabels() {
+        // Font SCALE is derived from a target ON-SCREEN pixel text height every frame (see
+        // worldUnitsPerScreenPixel()); the position offset from the port is deliberately left
+        // un-scaled so the label keeps pace with the (also un-scaled) port icon's own on-screen
+        // growth as you zoom in, instead of collapsing onto it.
+        portLabelFont.data.setScale(portLabelWorldHeight() / portLabelBaseLineHeight)
+        for (resolved in resolvedPorts) {
+            portLabelFont.draw(
+                batch,
+                resolved.port.name,
+                resolved.worldPos.x + PORT_LABEL_OFFSET_X,
+                resolved.worldPos.y + PORT_LABEL_OFFSET_Y
+            )
         }
     }
 
@@ -856,6 +993,24 @@ class PortRoyaleGame : ApplicationAdapter() {
         val s = REJECTED_CLICK_MARKER_SIZE
         shapeRenderer.line(x - s, y - s, x + s, y + s)
         shapeRenderer.line(x - s, y + s, x + s, y - s)
+    }
+
+    /** The player's ship isn't drawn while docked (see render()) - this soft, slowly pulsing
+     *  glow at the port they're in stands in for it, so glancing at the map behind an open port
+     *  menu still shows where the ship actually is. */
+    private fun drawDockedGlow() {
+        val port = resolvedPorts.firstOrNull { it.port.name == currentPortName } ?: return
+        val pulse = (sin(portPulseTime * DOCKED_GLOW_PULSE_SPEED) + 1f) / 2f
+        val size = DOCKED_GLOW_MIN_SIZE + (DOCKED_GLOW_MAX_SIZE - DOCKED_GLOW_MIN_SIZE) * pulse
+        val alpha = DOCKED_GLOW_MIN_ALPHA + (DOCKED_GLOW_MAX_ALPHA - DOCKED_GLOW_MIN_ALPHA) * pulse
+
+        batch.color = Color(1f, 1f, 1f, alpha)
+        batch.draw(
+            IconFactory.dockedGlow,
+            port.worldPos.x - size / 2f, port.worldPos.y - size / 2f,
+            size, size
+        )
+        batch.color = Color.WHITE
     }
 
     private fun drawAiShips() {
@@ -902,6 +1057,17 @@ class PortRoyaleGame : ApplicationAdapter() {
     private fun drawMinimap() {
         val mmX = (Gdx.graphics.width - MINIMAP_WIDTH - MINIMAP_MARGIN).toInt()
         val mmY = (Gdx.graphics.height - MINIMAP_HEIGHT - MINIMAP_MARGIN).toInt()
+        val border = MINIMAP_BORDER_WIDTH.toInt()
+
+        // Border frame: fill a viewport slightly larger than the minimap with the frame color
+        // first, then narrow back to the real minimap rect and draw the map on top - leaves an
+        // even `border`-pixel ring of frame color showing all the way around.
+        Gdx.gl.glViewport(mmX - border, mmY - border, MINIMAP_WIDTH.toInt() + border * 2, MINIMAP_HEIGHT.toInt() + border * 2)
+        shapeRenderer.projectionMatrix = minimapCamera.combined
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
+        shapeRenderer.color = Color.valueOf("C9A24A")
+        shapeRenderer.rect(0f, 0f, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT)
+        shapeRenderer.end()
 
         Gdx.gl.glViewport(mmX, mmY, MINIMAP_WIDTH.toInt(), MINIMAP_HEIGHT.toInt())
 
@@ -912,12 +1078,10 @@ class PortRoyaleGame : ApplicationAdapter() {
 
         shapeRenderer.projectionMatrix = minimapCamera.combined
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line)
-        shapeRenderer.color = Color.valueOf("E8A33D")
+        shapeRenderer.color = Color.RED
         val halfW = camera.viewportWidth * camera.zoom / 2f
         val halfH = camera.viewportHeight * camera.zoom / 2f
         shapeRenderer.rect(camera.position.x - halfW, camera.position.y - halfH, halfW * 2f, halfH * 2f)
-        shapeRenderer.color = Color.WHITE
-        shapeRenderer.rect(0f, 0f, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT)
         shapeRenderer.end()
 
         viewport.apply()

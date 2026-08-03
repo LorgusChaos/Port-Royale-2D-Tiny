@@ -19,6 +19,13 @@ object IconFactory {
     val shipyard: Texture by lazy { buildShipyardIcon() }
     val fortress: Texture by lazy { buildFortressIcon() }
     val port: Texture by lazy { buildPortIcon() }
+    /** Drawn behind a good icon on the map to flag it as notably cheap (surplus) or notably
+     *  expensive (shortage) at that port - see MarketState.notableGoods. */
+    val surplusFrame: Texture by lazy { buildFrameIcon(Color.valueOf("3E8E41")) }
+    val shortageFrame: Texture by lazy { buildFrameIcon(Color.valueOf("A61C1C")) }
+    /** Soft, smoothly-filtered glow marking the port the player's ship is currently docked at -
+     *  deliberately not run through [finish]'s pixel-art outline, since a glow should be soft. */
+    val dockedGlow: Texture by lazy { buildGlowIcon() }
 
     private val goodIcons = mutableMapOf<Good, Texture>()
 
@@ -29,6 +36,9 @@ object IconFactory {
         shipyard.dispose()
         fortress.dispose()
         port.dispose()
+        surplusFrame.dispose()
+        shortageFrame.dispose()
+        dockedGlow.dispose()
         goodIcons.values.forEach { it.dispose() }
     }
 
@@ -158,6 +168,34 @@ object IconFactory {
         pm.fillTriangle(33, 3, 33, 11, 46, 6)
 
         return finish(pm)
+    }
+
+    /** A hollow colored square ring - a good icon is drawn on top of this (smaller, centered)
+     *  wherever it's shown as notably cheap/expensive on the map. */
+    private fun buildFrameIcon(color: Color): Texture {
+        val pm = blank()
+        val thickness = 8
+        pm.setColor(color)
+        pm.fillRectangle(0, 0, SIZE, thickness)
+        pm.fillRectangle(0, SIZE - thickness, SIZE, thickness)
+        pm.fillRectangle(0, 0, thickness, SIZE)
+        pm.fillRectangle(SIZE - thickness, 0, thickness, SIZE)
+        return finish(pm)
+    }
+
+    private fun buildGlowIcon(): Texture {
+        val pm = blank()
+        val center = SIZE / 2
+        pm.setColor(Color(0.55f, 0.1f, 0.85f, 0.28f))
+        pm.fillCircle(center, center, SIZE / 2)
+        pm.setColor(Color(0.68f, 0.15f, 0.95f, 0.55f))
+        pm.fillCircle(center, center, SIZE / 3)
+        pm.setColor(Color(0.88f, 0.55f, 1f, 0.9f))
+        pm.fillCircle(center, center, SIZE / 6)
+        val texture = Texture(pm)
+        pm.dispose()
+        texture.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
+        return texture
     }
 
     private fun buildGoodIcon(good: Good): Texture {

@@ -3,15 +3,15 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4 - early prototype.** Sailing, trading, ship upgrades, combat, historical
-> factions with reputation, a living map of AI ships, audio, and a full main menu with
-> save/load are all playable in a rough form; art, content breadth, and economy balance are
+> **Status: v0.4.1 - early prototype.** Sailing, trading with a living dynamic market, ship
+> upgrades, combat, historical factions with reputation, a living map of AI ships, audio, and a
+> full main menu with save/load are all playable in a rough form; art and content breadth are
 > still early. See [Roadmap](#roadmap).
 
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4
+## What's here in v0.4.1
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -26,8 +26,10 @@ franchise's creators or publishers.
   clamped to the map bounds), and a minimap showing the current view.
 - Twelve labeled ports, each belonging to its real 17th/18th-century colonial owner - Spain,
   England, France, or the Netherlands. Arriving at one opens a city hub with icon buttons for:
-  - a **market** - buy/sell ten goods with hand-drawn icons; prices depend on the port and on
-    reputation with its owning faction;
+  - a **market** - buy/sell ten goods with hand-drawn icons; a living supply level per port/good
+    drifts over time and responds to the player's own trading, on top of the port's fixed
+    historical bias and reputation with its owning faction. Goods notably cheap or scarce at a
+    port show as small framed icons under its name on the map;
   - a **shipyard** - three ship tiers (Sloop/Brigantine/Galleon) purchasable with gold, plus a
     **Ship Status** screen for upgrades (cannons/oars/sails), hull cleaning, and repairs;
   - a **Commandant's Office** - shows standing with each colonial power; still a stub beyond
@@ -35,7 +37,9 @@ franchise's creators or publishers.
 - A living map: trade and military ships patrol between their faction's own ports, pirates
   wander between any port, all visible and faction-tinted. Pirates and hostile-reputation
   military ships engage on approach; peaceful ships can be deliberately hunted down for loot.
-  Ports are a safe harbor - no encounter ever triggers near one.
+  Ports are a safe harbor - no encounter ever triggers near one. Ships visibly dock - they
+  disappear into a port on arrival (a slow purple glow marks where) and reappear only once you
+  set off again.
 - Turn-based combat with animated ship sprites: cannonballs fly between ships, hits flash, shots
   can miss, maneuverability affects flee odds and evasion, and victory/defeat/flee outcomes
   affect gold, cargo, and reputation with the loser's faction.
@@ -46,9 +50,11 @@ franchise's creators or publishers.
   fullscreen toggle, resolution). `Esc` pauses and reopens the same menu mid-game, resuming
   exactly where play left off. Saves and settings persist as JSON files under the user's home
   directory.
-- Ship sprite art from Kenney's Pirate Pack (CC0); a real pixel font and bordered UI chrome
-  instead of placeholder styling; every hand-drawn icon (goods, ships, hub menu, port marker)
-  gets an automatic outline for a more consistent look.
+- Ship sprite art from Kenney's Pirate Pack (CC0); a period-style serif font (Cormorant Garamond)
+  on a parchment-toned, bordered UI instead of placeholder styling; every hand-drawn icon (goods,
+  ships, hub menu, port marker) gets an automatic outline for a more consistent look. The UI
+  scales responsively to the window size, and map labels/icons hold a constant on-screen size
+  regardless of zoom.
 
 ## Tech stack
 
@@ -90,6 +96,7 @@ First run downloads Gradle and dependencies, so it can take a minute.
 core/    platform-independent game logic (Kotlin)
   world/     map projection, water/land + pathfinding, port data, roaming AI ships
   factions/  colonial powers and reputation
+  economy/   goods, player wallet/cargo, dynamic per-port market state
   audio/     music/SFX playback
   save/      JSON save-game and settings persistence
 lwjgl3/  desktop (Windows/macOS/Linux) launcher
@@ -110,7 +117,9 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
 - [x] **M4** - ship types + shipyard, twelve ports and ten goods; economy balance still pending
 - [x] **M5** - audio and main menu/save-load
 - [x] **M6** - ship upgrades/condition, historical factions + reputation, a living map of
-      roaming AI ships *(this release)*
+      roaming AI ships
+- [x] **M6b** - a living per-port market economy, ships that visibly dock, and a UI/map polish
+      pass (font, scaling, zoom-constant labels) *(this release)*
 - [ ] **M7** - packaging, Android/macOS builds
 
 ## Credits
@@ -120,8 +129,8 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
   Dedering, licensed [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/deed.en).
 - Ship and tile sprites are from Kenney's [*Pirate
   Pack*](https://kenney.nl/assets/pirate-pack) ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
-- The UI font is [*Kenney Fonts*](https://kenney.nl/assets/kenney-fonts) (Kenney Pixel)
-  ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
+- The UI font is [*Cormorant Garamond*](https://fonts.google.com/specimen/Cormorant+Garamond)
+  ([SIL OFL 1.1](https://openfontlicense.org/)).
 - Background music is from the [*Ocean Music
   Pack*](https://opengameart.org/content/ocean-music-pack) by Leonardo Paz, licensed [CC BY 4.0 /
   3.0](https://creativecommons.org/licenses/by/4.0/) - credit required, given here.

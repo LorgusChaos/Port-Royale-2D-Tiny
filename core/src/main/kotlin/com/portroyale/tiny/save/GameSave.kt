@@ -6,6 +6,7 @@ import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.utils.Json
 import com.badlogic.gdx.utils.JsonWriter
 import com.portroyale.tiny.economy.Good
+import com.portroyale.tiny.economy.MarketState
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.ships.ShipType
@@ -27,6 +28,7 @@ class GameSaveData {
     var oarLevel: Int = 0
     var sailLevel: Int = 0
     var reputation: MutableMap<String, Int> = mutableMapOf()
+    var marketState: MutableMap<String, Float> = mutableMapOf()
 }
 
 /**
@@ -59,6 +61,7 @@ object SaveManager {
         data.oarLevel = player.condition.oarLevel
         data.sailLevel = player.condition.sailLevel
         data.reputation = player.reputation.entries.associate { it.key.name to it.value }.toMutableMap()
+        data.marketState = MarketState.snapshot().toMutableMap()
 
         val json = Json()
         json.setOutputType(JsonWriter.OutputType.json)

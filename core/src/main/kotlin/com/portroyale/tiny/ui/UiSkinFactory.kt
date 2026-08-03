@@ -17,24 +17,27 @@ import com.badlogic.gdx.scenes.scene2d.utils.Drawable
 import com.badlogic.gdx.scenes.scene2d.utils.NinePatchDrawable
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 
-private val PANEL_FILL = Color(0.08f, 0.06f, 0.04f, 0.94f)
+// Light aged-parchment panel now that body text is black (see UiSkinFactory.generateFont) -
+// black on the old near-black panel was almost unreadable. Buttons/fields stay a darker brown so
+// they still read as distinct, clickable chrome against the lighter body.
+private val PANEL_FILL = Color(0.80f, 0.72f, 0.56f, 0.97f)
 private val PANEL_BORDER = Color.valueOf("C9A24A")
-private val BUTTON_FILL = Color(0.42f, 0.28f, 0.16f, 1f)
-private val BUTTON_DOWN_FILL = Color(0.30f, 0.19f, 0.10f, 1f)
+private val BUTTON_FILL = Color(0.55f, 0.40f, 0.24f, 1f)
+private val BUTTON_DOWN_FILL = Color(0.42f, 0.29f, 0.16f, 1f)
 private val CHROME_BORDER = Color.valueOf("241609")
-private val FIELD_FILL = Color(0.15f, 0.11f, 0.07f, 1f)
+private val FIELD_FILL = Color(0.68f, 0.60f, 0.45f, 1f)
 
 /**
- * Shared Skin used by every modal screen, built around one real (CC0) pixel font instead of
- * libGDX's default placeholder font, plus bordered panel/button/field chrome instead of flat
- * solid rectangles - the goal is one consistent, deliberately "pixel game UI" look everywhere
- * rather than each screen inventing its own. The font is generated once and reused across every
- * Skin instance (regenerating a glyph atlas per screen would be wasteful); call
- * [disposeSharedFont] once, from the app's own dispose(), after every screen has disposed.
+ * Shared Skin used by every modal screen, built around one real (CC0) font instead of libGDX's
+ * default placeholder font, plus bordered panel/button/field chrome instead of flat solid
+ * rectangles - the goal is one consistent look everywhere rather than each screen inventing its
+ * own. The font is generated once and reused across every Skin instance (regenerating a glyph
+ * atlas per screen would be wasteful); call [disposeSharedFont] once, from the app's own
+ * dispose(), after every screen has disposed.
  */
 object UiSkinFactory {
 
-    private val sharedFont: BitmapFont by lazy { generateFont(16) }
+    private val sharedFont: BitmapFont by lazy { generateFont(21) }
 
     fun build(): Skin {
         val skin = Skin()
@@ -44,20 +47,26 @@ object UiSkinFactory {
         skin.add("button-up", borderedDrawable(BUTTON_FILL, CHROME_BORDER, 2), Drawable::class.java)
         skin.add("button-down", borderedDrawable(BUTTON_DOWN_FILL, CHROME_BORDER, 2), Drawable::class.java)
 
-        val labelStyle = Label.LabelStyle(font, Color.WHITE)
+        val labelStyle = Label.LabelStyle(font, Color.BLACK)
         skin.add("default", labelStyle)
+
+        // A boxed, centered number - same chrome as a text field - for market-style price badges
+        // (buy/sell price flanking a good's icon) instead of a plain inline label.
+        val priceLabelStyle = Label.LabelStyle(font, Color.BLACK)
+        priceLabelStyle.background = borderedDrawable(FIELD_FILL, CHROME_BORDER, 2, minWidth = 64f, minHeight = 30f)
+        skin.add("price", priceLabelStyle)
 
         val buttonStyle = TextButton.TextButtonStyle()
         buttonStyle.up = skin.getDrawable("button-up")
         buttonStyle.down = skin.getDrawable("button-down")
         buttonStyle.font = font
-        buttonStyle.fontColor = Color.WHITE
+        buttonStyle.fontColor = Color.BLACK
         skin.add("default", buttonStyle)
 
         val textFieldStyle = TextField.TextFieldStyle()
         textFieldStyle.font = font
-        textFieldStyle.fontColor = Color.WHITE
-        textFieldStyle.cursor = solidDrawable(Color.WHITE, minWidth = 2f)
+        textFieldStyle.fontColor = Color.BLACK
+        textFieldStyle.cursor = solidDrawable(Color.BLACK, minWidth = 2f)
         textFieldStyle.selection = solidDrawable(Color(0.4f, 0.4f, 0.7f, 0.5f))
         textFieldStyle.background = borderedDrawable(FIELD_FILL, CHROME_BORDER, 2, minHeight = 32f)
         skin.add("default", textFieldStyle)
@@ -77,13 +86,25 @@ object UiSkinFactory {
         sharedFont.dispose()
     }
 
-    private fun generateFont(size: Int): BitmapFont {
-        val generator = FreeTypeFontGenerator(Gdx.files.internal("fonts/kenney_pixel.ttf"))
+    /** Public so callers outside the Scene2D skin system (e.g. map-space labels drawn straight
+     *  onto the world SpriteBatch) can get their OWN independent instance of the same game font -
+     *  never hand out [sharedFont] itself for that, since its BitmapFontData.scale is mutable
+     *  global state that every skin-based screen relies on staying at the skin's own size. */
+    fun generateFont(size: Int): BitmapFont {
+        val generator = FreeTypeFontGenerator(Gdx.files.internal("fonts/cormorant_garamond.ttf"))
         val param = FreeTypeFontGenerator.FreeTypeFontParameter()
         param.size = size
-        param.minFilter = Texture.TextureFilter.Nearest
-        param.magFilter = Texture.TextureFilter.Nearest
-        param.color = Color.WHITE
+        param.minFilter = Texture.TextureFilter.Linear
+        param.magFilter = Texture.TextureFilter.Linear
+        param.color = Color.BLACK
+        // Cormorant Garamond's default instance is its "Light" weight, and libGDX's FreeType
+        // wrapper has no API to pick a heavier weight from a variable font - thickening the
+        // outline is the standard way to fake bold out of a font that doesn't have one. Kept
+        // thin: the outline only grows glyph INK, not the character-spacing metrics, so a wider
+        // border eats into the gaps between letters and makes them visually run together.
+        param.borderWidth = size * 0.035f
+        param.borderColor = Color.BLACK
+        param.borderStraight = true
         val font = generator.generateFont(param)
         generator.dispose()
         return font

@@ -43,7 +43,7 @@ class SaveGameUI(private val onSave: (saveName: String) -> Unit, private val onB
     }
 
     fun resize(width: Int, height: Int) {
-        stage.viewport.update(width, height, true)
+        UiScale.applyResize(stage, width, height)
     }
 
     fun dispose() {

@@ -9,9 +9,10 @@ import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
+import com.badlogic.gdx.utils.Align
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.economy.Good
-import com.portroyale.tiny.economy.Market
+import com.portroyale.tiny.economy.MarketState
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.factions.buyPriceMultiplier
@@ -20,10 +21,11 @@ import com.portroyale.tiny.world.Ports
 
 private const val REP_GAIN_PER_TRADE = 1
 
-/** Goods market sub-screen: buy/sell one unit at a time, per-port pricing (adjusted further by
- *  reputation with the port's faction), one row per good with a small icon. Every completed
- *  trade nudges reputation with that faction up slightly. Reached from PortHubUI; "Back" returns
- *  to the hub, not to open sea. */
+/** Goods market sub-screen: buy/sell one unit at a time. Price = port's historical bias x
+ *  current supply/demand (MarketState) x buy/sell spread x reputation with the port's faction -
+ *  buying nudges that good's stock down (price rises), selling nudges it up (price falls), and
+ *  every trade nudges reputation up slightly. Reached from PortHubUI; "Back" returns to the hub,
+ *  not to open sea. */
 class MarketUI(private val player: Player, private val onBack: () -> Unit) {
 
     val stage = Stage(UiScale.viewport())
@@ -34,7 +36,9 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
     private lateinit var goldLabel: Label
     private lateinit var cargoLabel: Label
     private lateinit var reputationLabel: Label
-    private val priceLabels = mutableMapOf<Good, Label>()
+    private val buyPriceLabels = mutableMapOf<Good, Label>()
+    private val sellPriceLabels = mutableMapOf<Good, Label>()
+    private val holdLabels = mutableMapOf<Good, Label>()
     private var currentPort = ""
     private var portFaction: Faction? = null
 
@@ -58,7 +62,7 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
     }
 
     fun resize(width: Int, height: Int) {
-        stage.viewport.update(width, height, true)
+        UiScale.applyResize(stage, width, height)
     }
 
     fun dispose() {
@@ -71,20 +75,25 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
         panel.background = skin.getDrawable("panel")
         panel.pad(40f)
 
+        val columns = 7
         titleLabel = Label("", skin)
         titleLabel.setFontScale(1.3f)
-        panel.add(titleLabel).colspan(5).left().padBottom(12f).row()
+        panel.add(titleLabel).colspan(columns).left().padBottom(12f).row()
         goldLabel = Label("", skin)
-        panel.add(goldLabel).colspan(5).left().row()
+        panel.add(goldLabel).colspan(columns).left().row()
         cargoLabel = Label("", skin)
-        panel.add(cargoLabel).colspan(5).left().row()
+        panel.add(cargoLabel).colspan(columns).left().row()
         reputationLabel = Label("", skin)
-        panel.add(reputationLabel).colspan(5).left().padBottom(20f).row()
+        panel.add(reputationLabel).colspan(columns).left().padBottom(20f).row()
 
+        // Row layout mirrors the classic trading-game look: a boxed buy price on the left, the
+        // good's icon/name in the middle, a boxed sell price on the right - rather than one
+        // combined "buy Xg / sell Yg" sentence. Plain numbers (no currency letter) since the
+        // pill's position already tells you which price it is.
         for (good in Good.entries) {
-            val icon = Image(TextureRegionDrawable(TextureRegion(IconFactory.iconFor(good))))
-            val priceLabel = Label("", skin)
-            priceLabels[good] = priceLabel
+            val buyPriceLabel = Label("", skin, "price")
+            buyPriceLabel.setAlignment(Align.center)
+            buyPriceLabels[good] = buyPriceLabel
 
             val buyButton = TextButton("Buy", skin)
             buyButton.addListener(object : ClickListener() {
@@ -92,12 +101,19 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
                     val price = buyPrice(good)
                     if (player.canBuy(price)) {
                         player.buy(good, price)
+                        MarketState.onBuy(currentPort, good)
                         gainReputation()
                         AudioManager.playCoins()
                         refresh()
                     }
                 }
             })
+
+            val icon = Image(TextureRegionDrawable(TextureRegion(IconFactory.iconFor(good))))
+
+            val sellPriceLabel = Label("", skin, "price")
+            sellPriceLabel.setAlignment(Align.center)
+            sellPriceLabels[good] = sellPriceLabel
 
             val sellButton = TextButton("Sell", skin)
             sellButton.addListener(object : ClickListener() {
@@ -105,6 +121,7 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
                     val price = sellPrice(good)
                     if (player.canSell(good)) {
                         player.sell(good, price)
+                        MarketState.onSell(currentPort, good)
                         gainReputation()
                         AudioManager.playCoins()
                         refresh()
@@ -112,11 +129,16 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
                 }
             })
 
+            val holdLabel = Label("", skin)
+            holdLabels[good] = holdLabel
+
+            panel.add(buyPriceLabel).width(64f).pad(4f)
+            panel.add(buyButton).width(64f).pad(4f)
             panel.add(icon).size(32f, 32f).pad(4f)
             panel.add(Label(good.displayName, skin)).left().width(90f).pad(4f)
-            panel.add(priceLabel).width(230f).pad(4f)
-            panel.add(buyButton).width(70f).pad(4f)
-            panel.add(sellButton).width(70f).pad(4f)
+            panel.add(sellPriceLabel).width(64f).pad(4f)
+            panel.add(sellButton).width(64f).pad(4f)
+            panel.add(holdLabel).width(50f).pad(4f)
             panel.row()
         }
 
@@ -127,23 +149,23 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
                 onBack()
             }
         })
-        panel.add(backButton).colspan(5).left().width(140f).padTop(20f)
+        panel.add(backButton).colspan(columns).left().width(140f).padTop(20f)
 
         root.add(panel)
     }
 
-    private fun basePriceAt(good: Good): Int = Market.priceAt(currentPort, good)
-
     private fun buyPrice(good: Good): Int {
-        val faction = portFaction ?: return basePriceAt(good)
+        val base = MarketState.buyPrice(currentPort, good)
+        val faction = portFaction ?: return base
         val rep = player.reputation[faction] ?: 0
-        return (basePriceAt(good) * buyPriceMultiplier(rep)).toInt()
+        return (base * buyPriceMultiplier(rep)).toInt().coerceAtLeast(1)
     }
 
     private fun sellPrice(good: Good): Int {
-        val faction = portFaction ?: return basePriceAt(good)
+        val base = MarketState.sellPrice(currentPort, good)
+        val faction = portFaction ?: return base
         val rep = player.reputation[faction] ?: 0
-        return (basePriceAt(good) * sellPriceMultiplier(rep)).toInt()
+        return (base * sellPriceMultiplier(rep)).toInt().coerceAtLeast(1)
     }
 
     private fun gainReputation() {
@@ -162,9 +184,11 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
                 ""
             }
         )
-        for ((good, label) in priceLabels) {
+        for (good in Good.entries) {
+            buyPriceLabels.getValue(good).setText(buyPrice(good).toString())
+            sellPriceLabels.getValue(good).setText(sellPrice(good).toString())
             val held = player.cargo[good] ?: 0
-            label.setText("buy ${buyPrice(good)}g / sell ${sellPrice(good)}g  (hold: $held)")
+            holdLabels.getValue(good).setText("×$held")
         }
     }
 }

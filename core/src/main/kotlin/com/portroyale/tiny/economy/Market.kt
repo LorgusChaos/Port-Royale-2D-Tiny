@@ -1,10 +1,12 @@
 package com.portroyale.tiny.economy
 
 /**
- * One price per good per port (no separate buy/sell spread yet) - profit comes from buying at a
- * port that produces a good cheaply and selling where it's needed. Keyed by port name to match
+ * Each port's fixed historical price bias - the "identity" half of pricing, e.g. Portobelo is
+ * always relatively cheap for silver. Keyed by port name to match
  * com.portroyale.tiny.world.Ports.Port.name. Specialties lean on real Caribbean-era trade history
- * (e.g. Portobelo/Veracruz as Spanish silver ports, Barbados as a sugar colony) for flavor.
+ * (e.g. Portobelo/Veracruz as Spanish silver ports, Barbados as a sugar colony) for flavor. The
+ * other half - current supply/demand, buy/sell spread - is [MarketState], which multiplies on
+ * top of this baseline rather than replacing it.
  */
 object Market {
     private val multipliers: Map<String, Map<Good, Float>> = mapOf(
@@ -58,8 +60,5 @@ object Market {
         )
     )
 
-    fun priceAt(portName: String, good: Good): Int {
-        val multiplier = multipliers[portName]?.get(good) ?: 1f
-        return (good.basePrice * multiplier).toInt()
-    }
+    fun historicalMultiplier(portName: String, good: Good): Float = multipliers[portName]?.get(good) ?: 1f
 }

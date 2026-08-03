@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.1] - 2026-08-03
+
+### Added
+- A living market: each port/good has a supply level that the player's own trades nudge (buying
+  depletes it and raises the price, selling floods it and lowers the price) and that drifts back
+  to neutral over about ten minutes on its own - a light illusion of a "background economy"
+  without a full production/consumption simulation. Goods notably cheap or scarce at a port now
+  show as small icons under its name on the map (green frame = surplus, red frame = shortage),
+  dimming when the player's own ship sprite passes over them and showing a name tooltip on hover.
+- Ships now visibly dock: arriving at a port makes the ship disappear from the map and the port
+  glow with a slow purple pulse, so it's clear where the ship is at a glance; it reappears only
+  once you actually set off toward a new destination.
+- The market screen was restructured to a classic trading-game layout - a boxed buy price, the
+  good's icon, and a boxed sell price in a row - instead of one combined sentence, and prices no
+  longer carry a redundant currency letter.
+
+### Changed
+- Replaced the UI's pixel font with *Cormorant Garamond*, a smoother period-appropriate serif,
+  and switched the panel background to a lighter parchment tone with black text to match.
+- The UI now scales responsively to the actual window size (still fits at the default windowed
+  launch size) instead of a single fixed multiplier that could overflow smaller windows.
+- Map port-name labels and market-surplus/shortage icons now render at a constant on-screen size
+  regardless of camera zoom, instead of shrinking to unreadable at full zoom-out.
+- The minimap has a solid border frame, and its current-view rectangle is now red instead of
+  gold, for better contrast against the border.
+
 ## [0.4.0] - 2026-08-03
 
 ### Added

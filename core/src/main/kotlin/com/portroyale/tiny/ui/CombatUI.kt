@@ -72,7 +72,7 @@ class CombatUI(private val onCombatEnd: (CombatOutcome) -> Unit) {
     }
 
     fun resize(width: Int, height: Int) {
-        stage.viewport.update(width, height, true)
+        UiScale.applyResize(stage, width, height)
     }
 
     fun dispose() {
