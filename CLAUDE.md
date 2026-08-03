@@ -1,0 +1,72 @@
+# Port Royale 2D Tiny — working notes
+
+Kotlin/libGDX (LWJGL3 desktop), Gradle multi-module: `core` (game logic) + `lwjgl3` (launcher).
+Windows-first. Current version: see `gradle.properties` (`appVersion`).
+
+## Build / run
+
+```
+export JAVA_HOME="C:\Program Files\Eclipse Adoptium\jdk-17.0.20.8-hotspot"
+./gradlew.bat -q :core:compileKotlin :lwjgl3:compileKotlin   # compile check
+./gradlew.bat -q :lwjgl3:run                                  # launch (run in background)
+```
+
+`-q` suppresses the per-task log lines and the "Deprecated Gradle features" boilerplate that
+otherwise prints on every invocation — only real output (errors, stack traces) shows. `JAVA_HOME`
+must be exported per Bash call; it doesn't persist between separate tool invocations.
+
+If a `NoClassDefFoundError` for a class that clearly exists shows up right after editing multiple
+files, it's a stale Gradle daemon cache, not a real bug — `./gradlew.bat clean` before rebuilding
+fixes it. Don't waste time debugging the "missing" class itself.
+
+## Testing discipline
+
+1. Compile check first (`compileKotlin` on both modules).
+2. Launch `:lwjgl3:run` in the background, redirecting output to a log file.
+3. Grep-filter the log for `FAILED|Exception|Error|error:` (e.g. via Monitor) rather than reading
+   the full Gradle output.
+4. **A clean exit (code 0) is never treated as user confirmation that a change looks/works
+   right** — it only means the process didn't crash. Always wait for the user to actually look at
+   the running game (screenshot or description) before calling a visual/UX change done.
+5. For interactive/visual bugs, don't ask multiple-choice diagnostic questions — launch the game
+   and have the user reproduce it live. Abstract questions about a UI bug are usually harder for
+   the user to answer than just showing you.
+6. Batch several related small tweaks (e.g. "also change X, Y, Z") into one compile+launch+review
+   cycle where feasible, instead of one full rebuild-and-relaunch round trip per tiny change.
+
+## Release workflow
+
+When cutting a version bump (`vX.Y` or `vX.Y.Z`), touch exactly these:
+- `CHANGELOG.md` — new version section (Added/Changed/Fixed)
+- `README.md` — status line, feature list, roadmap checkbox, credits if assets changed
+- `gradle.properties` — `appVersion`
+- `lwjgl3/src/main/kotlin/com/portroyale/tiny/lwjgl3/Lwjgl3Launcher.kt` — window title
+
+Then: compile check → `git add` specific files (never `-A`; `core/bin/` and `lwjgl3/bin/` are
+untracked IDE build output, not meant to be committed) → commit → `git tag -a vX.Y.Z` → push
+`main` and the tag. Only do this when the user explicitly asks to release/push a version.
+
+## Architecture gotchas worth knowing before touching rendering code
+
+- **ShapeRenderer's `projectionMatrix` is mutable, persistent state.** Any `shapeRenderer.begin()`
+  must have `.projectionMatrix` explicitly (re)set immediately before it, every time — it silently
+  leaks whatever the last draw call set (e.g. the minimap camera) into unrelated draw calls
+  otherwise. This has regressed more than once; don't remove that line during refactors.
+- **Constant on-screen size regardless of camera zoom**: `worldUnitsPerScreenPixel()` in
+  `PortRoyaleGame.kt` (`camera.viewportWidth * camera.zoom / viewport.screenWidth`) converts a
+  target screen-pixel size to the world-space size needed to render at that size at any zoom.
+  Multiplying a *world-unit* constant by `camera.zoom` directly does NOT give a sane result -  it
+  only keeps the size *consistent*, not *reasonably sized*, since the result depends on whatever
+  zoom level the base constant happened to be eyeballed at.
+- **`UiScale`** (`core/.../ui/UiScale.kt`) drives all Scene2D screens' text/button size, scaled to
+  the actual window width (clamped) so the default 1280x720 launch still fits. Every screen's
+  `resize()` must call `UiScale.applyResize(stage, width, height)`, not
+  `stage.viewport.update(...)` directly.
+- **`UiSkinFactory.generateFont()`** is the one place the UI font (Cormorant Garamond, a variable
+  TTF) is generated — it fakes bold via a thin FreeType border (the font has no real bold
+  instance), and generates independent `BitmapFont` objects for anything outside the shared Skin
+  (e.g. map-space port labels), since `BitmapFontData.scale` is global mutable state shared by
+  every screen using the same font object.
+- `MapProjection.MAP_WIDTH/MAP_HEIGHT` and the pathfinding grid's `cellSize` (10f, in `WorldMap`)
+  are independent scales — arrive-thresholds and pathfinding constants are tied to the grid, not
+  to overall map size, and must NOT be scaled when the map's world-unit size changes.

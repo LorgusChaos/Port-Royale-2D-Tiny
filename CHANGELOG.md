@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1.1] - 2026-08-03
+
+### Internal
+- Added `CLAUDE.md`: build/run commands, the testing-verification discipline, the release-file
+  checklist, and a handful of rendering-code gotchas (ShapeRenderer projection matrix reset, the
+  zoom-compensation formula, UiScale, font generation) - no gameplay or code changes.
+
 ## [0.4.1] - 2026-08-03
 
 ### Added
