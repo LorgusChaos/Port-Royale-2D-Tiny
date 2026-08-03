@@ -201,7 +201,7 @@ class PortRoyaleGame : ApplicationAdapter() {
 
         val mapPixmap = Pixmap(Gdx.files.internal("maps/caribbean_relief.png"))
         mapTexture = Texture(mapPixmap)
-        shipTextures = (ShipTypes.ALL.map { it.spritePath } + "sprites/ships/ship_02.png").distinct()
+        shipTextures = (ShipTypes.ALL.map { it.spritePath } + AiShipFactory.ALL_SPRITES).distinct()
             .associateWith { Texture(Gdx.files.internal(it)) }
 
         camera = OrthographicCamera()
@@ -1026,7 +1026,9 @@ class PortRoyaleGame : ApplicationAdapter() {
                 width / 2f, height / 2f,
                 width, height,
                 1f, 1f,
-                ship.headingDeg - 90f,
+                // The ship art's bow points toward the BOTTOM of the source image (stern/wheel
+                // at the top), not the top - so heading 0 (facing +X/east) needs +90, not -90.
+                ship.headingDeg + 90f,
                 0, 0, texture.width, texture.height,
                 false, false
             )
@@ -1047,7 +1049,7 @@ class PortRoyaleGame : ApplicationAdapter() {
             width / 2f, height / 2f,
             width, height,
             1f, 1f,
-            shipHeadingDeg - 90f,
+            shipHeadingDeg + 90f,
             0, 0, texture.width, texture.height,
             false, false
         )

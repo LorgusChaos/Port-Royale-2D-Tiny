@@ -37,10 +37,19 @@ class AiShip(
  *  point of piracy); military ships are the toughest fight but pay best; pirates sit in between,
  *  matching the old fixed "Pirate Sloop" encounter this replaces. */
 object AiShipFactory {
+    const val TRADE_SPRITE = "sprites/ships/ship_01.png"
+    const val MILITARY_SPRITE = "sprites/ships/ship_07.png"
+    const val PIRATE_SPRITE = "sprites/ships/ship_02.png"
+
+    /** Every sprite path an AiShip can be created with - PortRoyaleGame preloads exactly these
+     *  (plus each purchasable ShipType's own sprite) into its texture map, so this list must stay
+     *  in sync with the paths actually used below. */
+    val ALL_SPRITES = listOf(TRADE_SPRITE, MILITARY_SPRITE, PIRATE_SPRITE)
+
     fun trade(faction: Faction, position: Vector2) = AiShip(
         role = AiShipRole.TRADE,
         faction = faction,
-        spritePath = "sprites/ships/ship_01.png",
+        spritePath = TRADE_SPRITE,
         tint = faction.tint,
         speed = 22f,
         maxHull = 40,
@@ -53,7 +62,10 @@ object AiShipFactory {
     fun military(faction: Faction, position: Vector2) = AiShip(
         role = AiShipRole.MILITARY,
         faction = faction,
-        spritePath = "sprites/ships/ship_13.png",
+        // A different (bulkier-looking) silhouette from the trade sprite so the two roles read
+        // apart at a glance even under the same faction tint - ship_13 looked pre-damaged (a
+        // heavily torn-sail reskin from the same pack), which was never intentional.
+        spritePath = MILITARY_SPRITE,
         tint = faction.tint,
         speed = 30f,
         maxHull = 160,
@@ -66,7 +78,7 @@ object AiShipFactory {
     fun pirate(position: Vector2) = AiShip(
         role = AiShipRole.PIRATE,
         faction = null,
-        spritePath = "sprites/ships/ship_02.png",
+        spritePath = PIRATE_SPRITE,
         tint = Color.valueOf("8A2E2E"),
         speed = 38f,
         maxHull = 70,

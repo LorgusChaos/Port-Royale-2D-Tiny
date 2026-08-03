@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.2] - 2026-08-03
+
+### Fixed
+- Ships (player and AI) rendered rotated 180° from their actual heading - the sprite art's bow
+  points toward the bottom of the source image, not the top, so they always appeared to sail
+  stern-first.
+
+### Added
+- Three new purchasable ship classes - Cutter (cheap, fast, low cargo - a genuine sidegrade
+  rather than a strict upgrade), Barque, and Man-of-War - each with its own distinct hull
+  livery, for six total ship tiers instead of three.
+
+### Changed
+- Brigantine and Galleon now use their own distinct ship liveries instead of reused/reskinned
+  sprites (Brigantine no longer looks pre-damaged; Galleon no longer shares the Sloop's sprite).
+  AI warships also got a cleaner, non-damaged-looking hull for the same reason.
+
 ## [0.4.1.1] - 2026-08-03
 
 ### Internal

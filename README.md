@@ -3,7 +3,7 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.1 - early prototype.** Sailing, trading with a living dynamic market, ship
+> **Status: v0.4.2 - early prototype.** Sailing, trading with a living dynamic market, ship
 > upgrades, combat, historical factions with reputation, a living map of AI ships, audio, and a
 > full main menu with save/load are all playable in a rough form; art and content breadth are
 > still early. See [Roadmap](#roadmap).
@@ -11,7 +11,7 @@ combat, deliberately kept small in scope for a solo/hobby project.
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.1
+## What's here in v0.4.2
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -30,8 +30,9 @@ franchise's creators or publishers.
     drifts over time and responds to the player's own trading, on top of the port's fixed
     historical bias and reputation with its owning faction. Goods notably cheap or scarce at a
     port show as small framed icons under its name on the map;
-  - a **shipyard** - three ship tiers (Sloop/Brigantine/Galleon) purchasable with gold, plus a
-    **Ship Status** screen for upgrades (cannons/oars/sails), hull cleaning, and repairs;
+  - a **shipyard** - six ship classes (Sloop/Cutter/Barque/Brigantine/Galleon/Man-of-War, each
+    with its own distinct hull livery) purchasable with gold, plus a **Ship Status** screen for
+    upgrades (cannons/oars/sails), hull cleaning, and repairs;
   - a **Commandant's Office** - shows standing with each colonial power; still a stub beyond
     that, reserved for future quests.
 - A living map: trade and military ships patrol between their faction's own ports, pirates
@@ -119,7 +120,9 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
 - [x] **M6** - ship upgrades/condition, historical factions + reputation, a living map of
       roaming AI ships
 - [x] **M6b** - a living per-port market economy, ships that visibly dock, and a UI/map polish
-      pass (font, scaling, zoom-constant labels) *(this release)*
+      pass (font, scaling, zoom-constant labels)
+- [x] **M6c** - fixed ships rendering stern-first, six distinct purchasable ship classes instead
+      of three *(this release)*
 - [ ] **M7** - packaging, Android/macOS builds
 
 ## Credits
