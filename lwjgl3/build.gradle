@@ -1,5 +1,6 @@
 apply plugin: 'kotlin'
 apply plugin: 'application'
+apply plugin: 'com.gradleup.shadow'
 
 sourceCompatibility = 17
 targetCompatibility = 17
@@ -19,4 +20,14 @@ dependencies {
     implementation "com.badlogicgames.gdx:gdx-backend-lwjgl3:$gdxVersion"
     implementation "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
     implementation "com.badlogicgames.gdx:gdx-freetype-platform:$gdxVersion:natives-desktop"
+}
+
+// Single self-contained runnable JAR (all dependencies + LWJGL/GDX natives merged in) - the
+// distributable build: `java -jar` on any machine with a JDK 17+, no separate classpath/Gradle
+// needed. Named with the version so a shared build doesn't get silently overwritten by the next.
+shadowJar {
+    archiveBaseName.set('port-royale-2d-tiny')
+    archiveClassifier.set('')
+    archiveVersion.set(project.findProperty('appVersion') ?: '')
+    mergeServiceFiles()
 }

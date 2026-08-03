@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.3.1] - 2026-08-04
+
+### Internal
+- Added Gradle packaging: `./gradlew :lwjgl3:shadowJar` now produces a single self-contained
+  runnable JAR (`lwjgl3/build/libs/port-royale-2d-tiny-<version>.jar`, all dependencies and
+  LWJGL/GDX natives bundled in) for sharing a build without requiring Gradle or a source
+  checkout - only a JDK 17+ to run it. No gameplay or code changes.
+
 ## [0.4.3] - 2026-08-04
 
 ### Added

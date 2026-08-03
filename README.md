@@ -82,6 +82,17 @@ From the repository root:
 
 First run downloads Gradle and dependencies, so it can take a minute.
 
+## Building a distributable build
+
+```
+./gradlew :lwjgl3:shadowJar        # Linux/macOS
+.\gradlew.bat :lwjgl3:shadowJar    # Windows
+```
+
+Produces a single self-contained runnable JAR at `lwjgl3/build/libs/port-royale-2d-tiny-<version>.jar`
+(all dependencies and platform natives bundled in). Anyone with a JDK 17+ can run it directly -
+`java -jar port-royale-2d-tiny-<version>.jar` - no Gradle or source checkout needed.
+
 ## Controls
 
 | Input | Action |
@@ -128,8 +139,9 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
 - [x] **M6c** - fixed ships rendering stern-first, six distinct purchasable ship classes instead
       of three
 - [x] **M6d** - random sea events with a new dismissible notification UI, restructured shipyard
-      navigation *(this release)*
-- [ ] **M7** - packaging, Android/macOS builds
+      navigation
+- [x] **M7a** - packaging: a single distributable JAR (`:lwjgl3:shadowJar`) *(this release)*
+- [ ] **M7b** - Android/macOS builds
 
 ## Credits
 

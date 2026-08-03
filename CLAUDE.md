@@ -9,6 +9,7 @@ Windows-first. Current version: see `gradle.properties` (`appVersion`).
 export JAVA_HOME="C:\Program Files\Eclipse Adoptium\jdk-17.0.20.8-hotspot"
 ./gradlew.bat -q :core:compileKotlin :lwjgl3:compileKotlin   # compile check
 ./gradlew.bat -q :lwjgl3:run                                  # launch (run in background)
+./gradlew.bat -q :lwjgl3:shadowJar                            # distributable: lwjgl3/build/libs/port-royale-2d-tiny-<version>.jar
 ```
 
 `-q` suppresses the per-task log lines and the "Deprecated Gradle features" boilerplate that
