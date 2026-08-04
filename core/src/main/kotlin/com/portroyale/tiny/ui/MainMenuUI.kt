@@ -18,7 +18,8 @@ class MainMenuUI(
     private val onNewGame: () -> Unit,
     private val onLoad: () -> Unit,
     private val onSave: () -> Unit,
-    private val onSettings: () -> Unit
+    private val onSettings: () -> Unit,
+    private val onExit: () -> Unit
 ) {
     val stage = Stage(UiScale.viewport())
 
@@ -88,6 +89,11 @@ class MainMenuUI(
         panel.add(menuButton("Settings") {
             AudioManager.playClick()
             onSettings()
+        }).width(220f).pad(6f).row()
+
+        panel.add(menuButton("Exit") {
+            AudioManager.playClick()
+            onExit()
         }).width(220f).pad(6f).row()
 
         root.add(panel)

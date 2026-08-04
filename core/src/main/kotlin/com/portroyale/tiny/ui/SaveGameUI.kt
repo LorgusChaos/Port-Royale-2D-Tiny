@@ -9,6 +9,11 @@ import com.badlogic.gdx.scenes.scene2d.ui.TextField
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.save.SaveManager
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private val TIMESTAMP_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
 
 /** Save screen: type a new name, or click an existing save to overwrite it. Only reachable via
  *  Esc during an active game (PortRoyaleGame keeps the Save button on the main menu disabled
@@ -53,21 +58,22 @@ class SaveGameUI(private val onSave: (saveName: String) -> Unit, private val onB
 
     private fun refreshList() {
         listTable.clear()
-        val saves = SaveManager.listSaves()
+        val saves = SaveManager.listSaveInfos()
         if (saves.isEmpty()) {
             listTable.add(Label("No saved games yet.", skin)).pad(8f)
             return
         }
-        for (name in saves) {
-            val button = TextButton(name, skin)
+        for (info in saves) {
+            val button = TextButton(info.name, skin)
             button.addListener(object : ClickListener() {
                 override fun clicked(event: InputEvent?, x: Float, y: Float) {
                     AudioManager.playClick()
-                    nameField.text = name
+                    nameField.text = info.name
                     stage.keyboardFocus = nameField
                 }
             })
-            listTable.add(button).width(240f).pad(4f).row()
+            listTable.add(button).width(200f).pad(4f)
+            listTable.add(Label(TIMESTAMP_FORMAT.format(Date(info.savedAt)), skin)).width(150f).pad(4f).row()
         }
     }
 

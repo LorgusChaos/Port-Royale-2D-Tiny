@@ -24,6 +24,7 @@ class PortHubUI(
     private val onOpenMarket: () -> Unit,
     private val onOpenShipyard: () -> Unit,
     private val onOpenFortress: () -> Unit,
+    private val onOpenWarehouse: () -> Unit,
     private val onSetSail: () -> Unit
 ) {
     val stage = Stage(UiScale.viewport())
@@ -89,6 +90,13 @@ class PortHubUI(
             AudioManager.playClick()
             onOpenFortress()
         }).size(150f, 130f).pad(10f)
+        destinations.add(iconButton(IconFactory.warehouse, "Warehouse") {
+            AudioManager.playClick()
+            onOpenWarehouse()
+        }).size(150f, 130f).pad(10f)
+        destinations.add(iconButton(IconFactory.tavern, "Tavern") {
+            AudioManager.playClick()
+        }).size(150f, 130f).pad(10f)
         panel.add(destinations).padBottom(30f).row()
 
         val setSailButton = TextButton("Set Sail", skin)
@@ -108,8 +116,20 @@ class PortHubUI(
         button.background = skin.getDrawable("button-up")
         button.pad(14f)
 
+        // The art icons aren't square (unlike the old hand-drawn Pixmap ones), so fit each into
+        // a common box by its own aspect ratio instead of stretching it to a fixed size.
+        val maxW = 96f
+        val maxH = 78f
+        val aspect = icon.width.toFloat() / icon.height.toFloat()
+        var iconW = maxW
+        var iconH = iconW / aspect
+        if (iconH > maxH) {
+            iconH = maxH
+            iconW = iconH * aspect
+        }
+
         val image = Image(TextureRegionDrawable(TextureRegion(icon)))
-        button.add(image).size(64f, 64f).row()
+        button.add(image).size(iconW, iconH).row()
 
         val lbl = Label(label, skin)
         lbl.setAlignment(Align.center)

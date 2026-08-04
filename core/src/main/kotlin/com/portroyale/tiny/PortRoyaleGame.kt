@@ -27,6 +27,8 @@ import com.portroyale.tiny.economy.MarketState
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.factions.REPUTATION_HOSTILE_THRESHOLD
+import com.portroyale.tiny.factions.REPUTATION_MIN
+import com.portroyale.tiny.save.AUTOSAVE_NAME
 import com.portroyale.tiny.save.SaveManager
 import com.portroyale.tiny.save.SettingsManager
 import com.portroyale.tiny.ships.ShipTypes
@@ -36,17 +38,21 @@ import com.portroyale.tiny.world.AiShipRole
 import com.portroyale.tiny.ui.CombatUI
 import com.portroyale.tiny.ui.EventToastUI
 import com.portroyale.tiny.ui.FortressUI
+import com.portroyale.tiny.ui.HudOverlayUI
 import com.portroyale.tiny.ui.IconFactory
 import com.portroyale.tiny.ui.LoadGameUI
 import com.portroyale.tiny.ui.MainMenuUI
 import com.portroyale.tiny.ui.MarketUI
 import com.portroyale.tiny.ui.NewGameUI
 import com.portroyale.tiny.ui.PortHubUI
+import com.portroyale.tiny.ui.PropertyUI
 import com.portroyale.tiny.ui.SaveGameUI
 import com.portroyale.tiny.ui.SettingsUI
 import com.portroyale.tiny.ui.ShipStatusUI
 import com.portroyale.tiny.ui.ShipyardUI
 import com.portroyale.tiny.ui.UiSkinFactory
+import com.portroyale.tiny.ui.WarehouseUI
+import com.portroyale.tiny.world.GameClock
 import com.portroyale.tiny.world.MapProjection
 import com.portroyale.tiny.world.Ports
 import com.portroyale.tiny.world.SeaEventPoint
@@ -84,23 +90,26 @@ private const val DOCKED_GLOW_MIN_ALPHA = 0.5f
 private const val DOCKED_GLOW_MAX_ALPHA = 1f
 private const val DOCKED_GLOW_PULSE_SPEED = 2.4f // radians/sec - a full pulse cycle takes ~2.6s
 private const val ARRIVE_THRESHOLD = 14f
-private const val PORT_CLICK_RADIUS = 90f
+private const val PORT_CLICK_RADIUS = 45f
 // Deliberately much smaller than PORT_CLICK_RADIUS - a click has to land almost exactly on a
 // ship to start a chase, so plotting a normal course near a passing ship doesn't accidentally
 // hijack the click into hunt mode (which chases in a straight line with no obstacle avoidance).
 private const val SHIP_HUNT_CLICK_RADIUS = 3f
 private const val BASE_SHIP_SPRITE_WIDTH = 13f
 private const val PORT_ICON_SIZE = 26f
-private const val DEFEAT_GOLD_PENALTY = 0.7f
-private const val DEFEAT_HULL_RESTORE_FRACTION = 0.3f
 private const val AI_SHIP_ENGAGE_RADIUS = 52f
 private const val AI_SHIP_ARRIVE_THRESHOLD = 16f
+// Deliberately larger than AI_SHIP_ENGAGE_RADIUS - an outmatched pirate needs to notice and start
+// running before the player gets close enough to trigger combat, not exactly at the wire.
+private const val PIRATE_FLEE_AWARENESS_RADIUS = 140f
+private const val PIRATE_FLEE_SPEED_MULTIPLIER = 1.3f
 private const val PORT_SAFE_RADIUS = 160f
 private const val TRADE_SHIPS_PER_FACTION = 2
 private const val MILITARY_SHIPS_PER_FACTION = 1
 private const val PIRATE_SHIP_COUNT = 4
 private const val REP_LOSS_TRADE = -8
 private const val REP_LOSS_MILITARY = -15
+private const val AUTOSAVE_INTERVAL_SECONDS = 600f
 private const val SEA_EVENT_POOL_SIZE = 30
 private const val SEA_EVENT_TRIGGER_RADIUS = 90f
 private const val SEA_EVENT_RESPAWN_MIN = 45f
@@ -133,7 +142,7 @@ private const val MINIMAP_MARGIN = 16f
 
 private enum class NavMode { MANUAL, AUTOPILOT }
 private enum class GameMode { SAILING, IN_PORT, COMBAT }
-private enum class PortScreen { HUB, MARKET, SHIPYARD, SHIP_STATUS, FORTRESS }
+private enum class PortScreen { HUB, MARKET, SHIPYARD, SHIP_STATUS, FORTRESS, WAREHOUSE }
 private enum class AppState { MENU, PLAYING }
 private enum class MenuScreen { MAIN, NEW_GAME, LOAD, SAVE, SETTINGS }
 
@@ -167,6 +176,7 @@ class PortRoyaleGame : ApplicationAdapter() {
     private lateinit var shipyardUI: ShipyardUI
     private lateinit var shipStatusUI: ShipStatusUI
     private lateinit var fortressUI: FortressUI
+    private lateinit var warehouseUI: WarehouseUI
     private lateinit var combatUI: CombatUI
     private lateinit var mainMenuUI: MainMenuUI
     private lateinit var newGameUI: NewGameUI
@@ -174,6 +184,9 @@ class PortRoyaleGame : ApplicationAdapter() {
     private lateinit var saveGameUI: SaveGameUI
     private lateinit var settingsUI: SettingsUI
     private lateinit var eventToastUI: EventToastUI
+    private lateinit var hudOverlayUI: HudOverlayUI
+    private lateinit var propertyUI: PropertyUI
+    private var propertyOpen = false
 
     private val player = Player()
     private var gameMode = GameMode.SAILING
@@ -195,6 +208,7 @@ class PortRoyaleGame : ApplicationAdapter() {
     private var gameActive = false
     private var captainName = ""
     private var portPulseTime = 0f
+    private var autosaveTimer = 0f
     private var hoveredGood: Good? = null
     private val hoveredGoodPos = Vector2()
     // False from the moment the player docks until they actually set off again (manual input or
@@ -267,12 +281,14 @@ class PortRoyaleGame : ApplicationAdapter() {
             onOpenMarket = ::openMarket,
             onOpenShipyard = ::openShipStatus,
             onOpenFortress = ::openFortress,
+            onOpenWarehouse = ::openWarehouse,
             onSetSail = ::leavePort
         )
         marketUI = MarketUI(player, onBack = ::openHub)
         shipyardUI = ShipyardUI(player, onBack = ::openShipStatus)
         shipStatusUI = ShipStatusUI(player, onBack = ::openHub, onOpenShipyard = ::openShipyard)
         fortressUI = FortressUI(player, onBack = ::openHub)
+        warehouseUI = WarehouseUI(player, onBack = ::openHub)
         combatUI = CombatUI(onCombatEnd = ::finishCombat)
 
         mainMenuUI = MainMenuUI(
@@ -280,14 +296,17 @@ class PortRoyaleGame : ApplicationAdapter() {
             onNewGame = ::openNewGameScreen,
             onLoad = ::openLoadScreen,
             onSave = ::openSaveScreen,
-            onSettings = ::openSettingsScreen
+            onSettings = ::openSettingsScreen,
+            onExit = { Gdx.app.exit() }
         )
         newGameUI = NewGameUI(onBegin = ::startNewGame, onBack = ::showMainMenu)
         loadGameUI = LoadGameUI(onLoad = ::loadGame, onBack = ::showMainMenu)
         saveGameUI = SaveGameUI(onSave = ::saveGame, onBack = ::showMainMenu)
         settingsUI = SettingsUI(onBack = ::showMainMenu)
         eventToastUI = EventToastUI()
-        sailingWithToastInputProcessor = InputMultiplexer(eventToastUI.stage, sailingInputProcessor)
+        propertyUI = PropertyUI(player, onBack = ::closeProperty)
+        hudOverlayUI = HudOverlayUI(onOpenProperty = ::openProperty)
+        sailingWithToastInputProcessor = InputMultiplexer(eventToastUI.stage, hudOverlayUI.stage, sailingInputProcessor)
 
         val settings = SettingsManager.load()
         AudioManager.setMasterVolume(settings.masterVolume)
@@ -317,6 +336,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         shipyardUI.resize(width, height)
         shipStatusUI.resize(width, height)
         fortressUI.resize(width, height)
+        warehouseUI.resize(width, height)
         combatUI.resize(width, height)
         mainMenuUI.resize(width, height)
         newGameUI.resize(width, height)
@@ -324,6 +344,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         saveGameUI.resize(width, height)
         settingsUI.resize(width, height)
         eventToastUI.resize(width, height)
+        hudOverlayUI.resize(width, height)
+        propertyUI.resize(width, height)
     }
 
     override fun render() {
@@ -337,15 +359,23 @@ class PortRoyaleGame : ApplicationAdapter() {
 
         if (appState == AppState.PLAYING) {
             MarketState.update(Gdx.graphics.deltaTime)
+            GameClock.update(Gdx.graphics.deltaTime)
             if (!shipVisible) {
                 portPulseTime += Gdx.graphics.deltaTime
             }
+            autosaveTimer += Gdx.graphics.deltaTime
+            if (autosaveTimer >= AUTOSAVE_INTERVAL_SECONDS) {
+                autosaveTimer = 0f
+                saveGame(AUTOSAVE_NAME)
+            }
+            checkLoanOverdue()
+            updateDebtHud()
         }
 
         // A sea-event toast freezes sailing entirely while it's up - ship movement, AI ships,
         // encounters, and further events all wait, so nothing can happen unseen behind it and a
         // click meant for its close button can't also be read as a course-setting click.
-        if (appState == AppState.PLAYING && gameMode == GameMode.SAILING && !eventToastUI.isShowing) {
+        if (appState == AppState.PLAYING && gameMode == GameMode.SAILING && !eventToastUI.isShowing && !propertyOpen) {
             handleInput()
             if (huntedShip != null) updateShipHunt(Gdx.graphics.deltaTime) else updateAutopilot(Gdx.graphics.deltaTime)
             updateAiShips(Gdx.graphics.deltaTime)
@@ -380,23 +410,27 @@ class PortRoyaleGame : ApplicationAdapter() {
         if (gameActive) drawHoveredGoodTooltip()
         batch.end()
 
-        val showPath = gameMode == GameMode.SAILING && navMode == NavMode.AUTOPILOT && path.isNotEmpty()
+        // The autopilot route line is intentionally not drawn - path itself still drives
+        // movement in updateAutopilot(), this only skips the visual.
         val showRejectedMarker = rejectedClickTimer > 0f
-        if (showPath || showRejectedMarker) {
+        if (showRejectedMarker) {
             // drawMinimap() (later this frame, and every frame before this one) points
             // shapeRenderer at minimapCamera's projection - it has to be pointed back at the
             // main camera here or these draw in the wrong coordinate space entirely.
             shapeRenderer.projectionMatrix = camera.combined
             shapeRenderer.begin(ShapeRenderer.ShapeType.Line)
-            if (showPath) drawPath()
-            if (showRejectedMarker) drawRejectedClickMarker()
+            drawRejectedClickMarker()
             shapeRenderer.end()
         }
 
-        if (gameActive) drawMinimap()
+        if (gameActive) {
+            drawMinimap()
+            hudOverlayUI.render(Gdx.graphics.deltaTime)
+        }
         // Not gated to GameMode.SAILING: a delivery toast can be triggered by arriveAtPort()
         // switching to GameMode.IN_PORT earlier in this same frame, before this draw pass runs.
         if (appState == AppState.PLAYING) eventToastUI.render(Gdx.graphics.deltaTime)
+        if (propertyOpen) propertyUI.render(Gdx.graphics.deltaTime)
 
         if (appState == AppState.PLAYING) {
             when (gameMode) {
@@ -406,6 +440,7 @@ class PortRoyaleGame : ApplicationAdapter() {
                     PortScreen.SHIPYARD -> shipyardUI.render(Gdx.graphics.deltaTime)
                     PortScreen.SHIP_STATUS -> shipStatusUI.render(Gdx.graphics.deltaTime)
                     PortScreen.FORTRESS -> fortressUI.render(Gdx.graphics.deltaTime)
+                    PortScreen.WAREHOUSE -> warehouseUI.render(Gdx.graphics.deltaTime)
                 }
                 GameMode.COMBAT -> combatUI.render(Gdx.graphics.deltaTime)
                 GameMode.SAILING -> {}
@@ -662,6 +697,23 @@ class PortRoyaleGame : ApplicationAdapter() {
         Gdx.input.inputProcessor = fortressUI.stage
     }
 
+    private fun openWarehouse() {
+        portScreen = PortScreen.WAREHOUSE
+        warehouseUI.open(currentPortName)
+        Gdx.input.inputProcessor = warehouseUI.stage
+    }
+
+    private fun openProperty() {
+        propertyOpen = true
+        propertyUI.open()
+        Gdx.input.inputProcessor = propertyUI.stage
+    }
+
+    private fun closeProperty() {
+        propertyOpen = false
+        Gdx.input.inputProcessor = sailingWithToastInputProcessor
+    }
+
     private fun leavePort() {
         gameMode = GameMode.SAILING
         Gdx.input.inputProcessor = sailingWithToastInputProcessor
@@ -700,6 +752,7 @@ class PortRoyaleGame : ApplicationAdapter() {
                 PortScreen.SHIPYARD -> shipyardUI.stage
                 PortScreen.SHIP_STATUS -> shipStatusUI.stage
                 PortScreen.FORTRESS -> fortressUI.stage
+                PortScreen.WAREHOUSE -> warehouseUI.stage
             }
             GameMode.COMBAT -> combatUI.stage
         }
@@ -738,6 +791,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         gameActive = true
         appState = AppState.PLAYING
         gameMode = GameMode.SAILING
+        autosaveTimer = 0f
         Gdx.input.inputProcessor = sailingWithToastInputProcessor
         AudioManager.playSailingMusic()
     }
@@ -746,6 +800,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         captainName = name.ifBlank { "Captain" }
         player.reset()
         MarketState.reset()
+        GameClock.reset()
         shipPosition.set(defaultStartPosition())
         beginPlaying()
     }
@@ -763,6 +818,10 @@ class PortRoyaleGame : ApplicationAdapter() {
         player.condition.sailLevel = data.sailLevel
         SaveManager.resolveReputation(data.reputation).forEach { (faction, value) -> player.reputation[faction] = value }
         MarketState.restore(data.marketState)
+        GameClock.restore(data.gameClockMinutes)
+        player.warehouses.clear()
+        player.warehouses.putAll(SaveManager.resolveWarehouses(data))
+        player.loan = SaveManager.resolveLoan(data)
         shipPosition.set(data.shipX, data.shipY)
         beginPlaying()
     }
@@ -790,7 +849,13 @@ class PortRoyaleGame : ApplicationAdapter() {
     }
 
     private fun updateAiShips(delta: Float) {
+        val myTier = playerShipTier()
         for (ship in aiShips) {
+            if (ship.role == AiShipRole.PIRATE && ship.tier < myTier &&
+                shipPosition.dst(ship.position) < PIRATE_FLEE_AWARENESS_RADIUS
+            ) {
+                if (fleeFromPlayer(ship, delta)) continue
+            }
             if (ship.pathIndex >= ship.path.size) {
                 retargetAiShip(ship)
                 continue
@@ -811,6 +876,26 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
     }
 
+    /** An outmatched pirate's panic move: sail directly away from the player, ignoring its
+     *  current patrol path entirely (resumed automatically once it's out of
+     *  [PIRATE_FLEE_AWARENESS_RADIUS], since neither pathIndex nor path was touched). No
+     *  pathfinding involved, so it bails out (returns false, letting normal path movement run
+     *  instead for this frame) rather than risk sailing straight onto land. */
+    private fun fleeFromPlayer(ship: AiShip, delta: Float): Boolean {
+        val dx = ship.position.x - shipPosition.x
+        val dy = ship.position.y - shipPosition.y
+        val dist = Vector2(dx, dy).len().coerceAtLeast(0.01f)
+        val nx = dx / dist
+        val ny = dy / dist
+        val speed = ship.speed * PIRATE_FLEE_SPEED_MULTIPLIER
+        val newX = ship.position.x + nx * speed * delta
+        val newY = ship.position.y + ny * speed * delta
+        if (!worldMap.isWater(newX, newY)) return false
+        ship.position.set(newX, newY)
+        ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
+        return true
+    }
+
     /** Single-port factions (France, Netherlands) would otherwise have nowhere else to "patrol"
      *  to and just sit stuck re-targeting their own home port forever - fall back to any port,
      *  and always exclude wherever the ship already is, so it actually goes somewhere new. */
@@ -827,15 +912,25 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
     }
 
-    /** Pirates are always hostile; a faction's military only turns hostile once the player's
-     *  reputation with that faction has soured. Trade ships are never auto-hostile - the player
-     *  has to deliberately click one to go after it (see [handleInput] / [huntedShip]). */
+    /** A pirate only picks a fight it can plausibly win: it engages when its own tier is at
+     *  least the player's current ship tier, and otherwise flees on sight instead (see the flee
+     *  movement branch in updateAiShips()) - a Brigantine-tier pirate ducks a Galleon-tier
+     *  player, and a Galleon-tier pirate has no reason to duck a Brigantine-tier player. A
+     *  faction's military only turns hostile once the player's reputation with that faction has
+     *  soured (or a loan with them has gone overdue - see checkLoanOverdue). Trade ships are
+     *  never auto-hostile - the player has to deliberately click one to go after it (see
+     *  [handleInput] / [huntedShip]). */
     private fun isHostile(ship: AiShip): Boolean {
-        if (ship.role == AiShipRole.PIRATE) return true
+        if (ship.role == AiShipRole.PIRATE) return ship.tier >= playerShipTier()
         if (ship.role != AiShipRole.MILITARY) return false
         val faction = ship.faction ?: return false
         return (player.reputation[faction] ?: 0) <= REPUTATION_HOSTILE_THRESHOLD
     }
+
+    /** 1 (Sloop) through 5 (Galleon) matching ShipTypes.ALL's own order; a Wreck counts as the
+     *  weakest possible tier (irrelevant in practice - checkAiEncounters already exempts it from
+     *  every encounter, hostile or not). */
+    private fun playerShipTier(): Int = (ShipTypes.ALL.indexOf(player.ship) + 1).coerceAtLeast(1)
 
     /** Ports (and the water right around them) are a safe harbor - no encounter can trigger
      *  there, so leaving a port never dumps the player straight into an ambush from whatever
@@ -843,7 +938,48 @@ class PortRoyaleGame : ApplicationAdapter() {
     private fun isNearAnyPort(pos: Vector2): Boolean =
         resolvedPorts.any { it.worldPos.dst(pos) < PORT_SAFE_RADIUS }
 
+    /** Once past its deadline, a loan only gets flagged overdue once: the debt doubles and that
+     *  faction's reputation crashes to hostile (reusing the existing hostile-military-engagement
+     *  check in checkAiEncounters/isHostile - no separate "at war" flag needed). */
+    private fun checkLoanOverdue() {
+        val loan = player.loan ?: return
+        if (loan.overdue) return
+        if (GameClock.totalGameMinutes < loan.deadlineGameMinutes) return
+        loan.overdue = true
+        loan.repayAmount *= 2
+        player.reputation[loan.faction] = REPUTATION_MIN
+        eventToastUI.show(
+            "Your debt to the ${loan.faction.displayName} commandant is overdue! It has doubled " +
+                "to ${loan.repayAmount}g, and their ships will now attack you on sight.",
+            IconFactory.debt
+        )
+    }
+
+    private fun updateDebtHud() {
+        val loan = player.loan
+        if (loan == null) {
+            hudOverlayUI.setDebt(visible = false, fraction = 0f, countdownText = "")
+            return
+        }
+        val totalTerm = loan.deadlineGameMinutes - loan.takenAtGameMinutes
+        val elapsed = GameClock.totalGameMinutes - loan.takenAtGameMinutes
+        val fraction = if (totalTerm > 0f) elapsed / totalTerm else 1f
+        val countdownText = if (loan.overdue) {
+            "OVERDUE"
+        } else {
+            val remainingGameMinutes = (loan.deadlineGameMinutes - GameClock.totalGameMinutes).coerceAtLeast(0f)
+            val remainingRealMinutes = GameClock.gameMinutesToRealMinutes(remainingGameMinutes).toInt()
+            val hours = remainingRealMinutes / 60
+            val minutes = remainingRealMinutes % 60
+            "${hours}h ${minutes}m"
+        }
+        hudOverlayUI.setDebt(visible = true, fraction = fraction, countdownText = countdownText)
+    }
+
     private fun checkAiEncounters() {
+        // A wrecked ship (see ShipTypes.WRECK) can't fight - 0 damage would just be a stalemate
+        // or a guaranteed loss - so nothing ever engages it; it only exists to limp to a port.
+        if (player.ship == ShipTypes.WRECK) return
         if (isNearAnyPort(shipPosition)) return
         for (ship in aiShips) {
             val engaging = isHostile(ship) || ship === huntedShip
@@ -967,18 +1103,24 @@ class PortRoyaleGame : ApplicationAdapter() {
                     val loss = if (target.role == AiShipRole.MILITARY) REP_LOSS_MILITARY else REP_LOSS_TRADE
                     player.adjustReputation(faction, loss)
                 }
+                eventToastUI.show(
+                    "Victory! You defeated the ${target.displayName} and claimed ${target.goldReward}g.",
+                    IconFactory.coin
+                )
                 aiShips.remove(target)
                 respawnReplacement(target)
             }
             CombatOutcome.DEFEAT -> {
-                player.gold = (player.gold * DEFEAT_GOLD_PENALTY).toInt()
-                for (good in Good.entries) {
-                    player.cargo[good] = (player.cargo[good] ?: 0) / 2
-                }
-                // Ships don't sink for good here - a defeated ship limps away patched up just
-                // enough to sail, rather than being stuck at 0 hull until a shipyard visit.
-                player.condition.currentHull =
-                    (player.effectiveMaxHull * DEFEAT_HULL_RESTORE_FRACTION).toInt().coerceAtLeast(1)
+                // Losing a fight is total: every coin and every unit of cargo on the ship is
+                // gone (anything already tucked away in a port warehouse is untouched), and the
+                // ship itself is wrecked down to ShipTypes.WRECK - just enough to reach a port,
+                // never a fight. Full hull on the wreck so that "reach a port" is always possible.
+                player.wreckShip()
+                eventToastUI.show(
+                    "Defeated! Your ship is wrecked, your cargo and gold are lost. " +
+                        "You limp away in a battered wreck - just enough to reach a port.",
+                    IconFactory.castaway
+                )
             }
             CombatOutcome.FLED, CombatOutcome.ONGOING -> {}
         }
@@ -1022,17 +1164,6 @@ class PortRoyaleGame : ApplicationAdapter() {
                 resolved.worldPos.x - PORT_ICON_SIZE / 2f, resolved.worldPos.y - PORT_ICON_SIZE / 2f,
                 PORT_ICON_SIZE, PORT_ICON_SIZE
             )
-        }
-    }
-
-    private fun drawPath() {
-        shapeRenderer.color = Color.valueOf("2B2B2B")
-        var prevX = shipPosition.x
-        var prevY = shipPosition.y
-        for (point in path) {
-            shapeRenderer.line(prevX, prevY, point.x, point.y)
-            prevX = point.x
-            prevY = point.y
         }
     }
 
@@ -1164,9 +1295,9 @@ class PortRoyaleGame : ApplicationAdapter() {
                 width / 2f, height / 2f,
                 width, height,
                 1f, 1f,
-                // The ship art's bow points toward the BOTTOM of the source image (stern/wheel
-                // at the top), not the top - so heading 0 (facing +X/east) needs +90, not -90.
-                ship.headingDeg + 90f,
+                // The ship2_* art's bow points toward the TOP of the source image (unlike the
+                // old Kenney set, which was bow-down) - heading 0 (facing +X/east) needs -90.
+                ship.headingDeg - 90f,
                 0, 0, texture.width, texture.height,
                 false, false
             )
@@ -1187,7 +1318,7 @@ class PortRoyaleGame : ApplicationAdapter() {
             width / 2f, height / 2f,
             width, height,
             1f, 1f,
-            shipHeadingDeg + 90f,
+            shipHeadingDeg - 90f,
             0, 0, texture.width, texture.height,
             false, false
         )
@@ -1238,6 +1369,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         shipyardUI.dispose()
         shipStatusUI.dispose()
         fortressUI.dispose()
+        warehouseUI.dispose()
         combatUI.dispose()
         mainMenuUI.dispose()
         newGameUI.dispose()
@@ -1245,6 +1377,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         saveGameUI.dispose()
         settingsUI.dispose()
         eventToastUI.dispose()
+        hudOverlayUI.dispose()
+        propertyUI.dispose()
         AudioManager.dispose()
         IconFactory.dispose()
         UiSkinFactory.disposeSharedFont()

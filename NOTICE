@@ -22,7 +22,9 @@ assets/maps/caribbean_relief.png
   CC BY-SA 3.0: redistribution requires attribution to Uwe Dedering, and
   derivative works must be shared under the same or a compatible license.
 
-assets/sprites/ships/, assets/sprites/tiles/
+assets/sprites/tiles/, and assets/sprites/ships/ship_*.png, dinghy*.png
+(an earlier, now-unused ship sprite set, kept in the repo but no longer
+referenced by any code)
 
   "Pirate Pack"
   Author:  Kenney Vleugels (www.kenney.nl)
@@ -32,6 +34,13 @@ assets/sprites/ships/, assets/sprites/tiles/
 
   Public domain - usable without restriction, credit not required but given
   here as a courtesy.
+
+assets/sprites/ships/ship2_*.png, assets/sprites/icons/
+
+  AI-generated ship sprites (5 hull tiers x 6 sail colors) and city-menu
+  icons (Market/Shipyard/Warehouse/Commandant/Tavern). No identifiable
+  human author or rights-holder; provided directly by the project owner,
+  who generated them for this project.
 
 assets/audio/hit.ogg, assets/audio/click.ogg
 

@@ -1,5 +1,6 @@
 package com.portroyale.tiny.ui
 
+import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
@@ -15,9 +16,10 @@ object IconFactory {
     private const val SIZE = 64
     private val OUTLINE_COLOR = Color.valueOf("1A120A")
 
-    val market: Texture by lazy { buildMarketIcon() }
-    val shipyard: Texture by lazy { buildShipyardIcon() }
-    val fortress: Texture by lazy { buildFortressIcon() }
+    val market: Texture by lazy { buildArtIcon("sprites/icons/market.png") }
+    val shipyard: Texture by lazy { buildArtIcon("sprites/icons/shipyard.png") }
+    val fortress: Texture by lazy { buildArtIcon("sprites/icons/fortress.png") }
+    val tavern: Texture by lazy { buildArtIcon("sprites/icons/tavern.png") }
     val port: Texture by lazy { buildPortIcon() }
     /** Drawn behind a good icon on the map to flag it as notably cheap (surplus) or notably
      *  expensive (shortage) at that port - see MarketState.notableGoods. */
@@ -31,6 +33,9 @@ object IconFactory {
     val coin: Texture by lazy { buildCoinIcon() }
     val bottle: Texture by lazy { buildBottleIcon() }
     val castaway: Texture by lazy { buildCastawayIcon() }
+    val warehouse: Texture by lazy { buildArtIcon("sprites/icons/warehouse.png") }
+    val property: Texture by lazy { buildPropertyIcon() }
+    val debt: Texture by lazy { buildDebtIcon() }
 
     private val goodIcons = mutableMapOf<Good, Texture>()
 
@@ -40,6 +45,7 @@ object IconFactory {
         market.dispose()
         shipyard.dispose()
         fortress.dispose()
+        tavern.dispose()
         port.dispose()
         surplusFrame.dispose()
         shortageFrame.dispose()
@@ -47,6 +53,9 @@ object IconFactory {
         coin.dispose()
         bottle.dispose()
         castaway.dispose()
+        warehouse.dispose()
+        property.dispose()
+        debt.dispose()
         goodIcons.values.forEach { it.dispose() }
     }
 
@@ -83,60 +92,14 @@ object IconFactory {
         }
     }
 
-    private fun buildMarketIcon(): Texture {
-        val pm = blank()
-        val dark = Color.valueOf("B8912E")
-        val gold = Color.valueOf("EFCB61")
-        for ((cx, cy) in listOf(32 to 20, 18 to 42, 46 to 42)) {
-            pm.setColor(dark)
-            pm.fillCircle(cx, cy, 16)
-            pm.setColor(gold)
-            pm.fillCircle(cx, cy, 12)
-            pm.setColor(dark)
-            pm.drawCircle(cx, cy, 12)
-        }
-        return finish(pm)
-    }
-
-    private fun buildShipyardIcon(): Texture {
-        val pm = blank()
-        val metalLit = Color.valueOf("D7DBE0")
-        val metalShadow = Color.valueOf("9BA1AA")
-        pm.setColor(metalShadow)
-        pm.fillRectangle(30, 6, 6, 36)
-        pm.fillCircle(32, 8, 7)
-        pm.setColor(metalLit)
-        pm.fillRectangle(29, 6, 3, 36)
-        pm.setColor(Color.valueOf("1C1B18"))
-        pm.fillCircle(32, 8, 3)
-        pm.setColor(metalShadow)
-        pm.fillRectangle(18, 30, 28, 5)
-        pm.fillTriangle(18, 33, 32, 55, 18, 47)
-        pm.fillTriangle(46, 33, 32, 55, 46, 47)
-        pm.fillCircle(32, 55, 5)
-        pm.setColor(metalLit)
-        pm.fillTriangle(18, 33, 25, 55, 18, 47)
-        return finish(pm)
-    }
-
-    private fun buildFortressIcon(): Texture {
-        val pm = blank()
-        val stoneDark = Color.valueOf("6E695F")
-        val stone = Color.valueOf("9C958A")
-        pm.setColor(stoneDark)
-        pm.fillRectangle(12, 26, 40, 28)
-        pm.setColor(stone)
-        pm.fillRectangle(15, 29, 34, 22)
-        pm.setColor(stoneDark)
-        pm.fillRectangle(12, 16, 9, 11)
-        pm.fillRectangle(28, 16, 9, 11)
-        pm.fillRectangle(43, 16, 9, 11)
-        pm.setColor(Color.valueOf("7A4A2E"))
-        pm.fillRectangle(27, 38, 10, 16)
-        pm.setColor(Color.valueOf("A61C1C"))
-        pm.fillRectangle(33, 5, 2, 13)
-        pm.fillTriangle(35, 6, 35, 13, 46, 9)
-        return finish(pm)
+    /** Loads one of the hand-painted (AI-generated, background-removed) port-menu icons from
+     *  disk - unlike the other icons here, these are not built from Pixmap primitives, so they
+     *  skip [finish]'s pixel-art outline pass. Mipmapped + linearly filtered since the source art
+     *  is ~5x the 64x64 display size and would alias badly under nearest-neighbor minification. */
+    private fun buildArtIcon(path: String): Texture {
+        val texture = Texture(Gdx.files.internal(path), true)
+        texture.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear)
+        return texture
     }
 
     /** Map marker for a port: a couple of house silhouettes plus a small flagged dock post,
@@ -242,6 +205,39 @@ object IconFactory {
         pm.setColor(Color.valueOf("8A5A2E"))
         pm.fillRectangle(12, 40, 14, 6)
         pm.fillRectangle(38, 40, 14, 6)
+        return finish(pm)
+    }
+
+    private fun buildPropertyIcon(): Texture {
+        val pm = blank()
+        pm.setColor(Color.valueOf("6E4A2E"))
+        pm.fillRectangle(10, 20, 44, 10)
+        pm.setColor(Color.valueOf("9C6E3E"))
+        pm.fillRectangle(10, 30, 44, 26)
+        pm.setColor(Color.valueOf("D9A24A"))
+        pm.fillRectangle(14, 34, 15, 10)
+        pm.fillRectangle(35, 34, 15, 10)
+        pm.fillRectangle(14, 48, 15, 6)
+        pm.fillRectangle(35, 48, 15, 6)
+        pm.setColor(Color.valueOf("5A3A20"))
+        pm.drawRectangle(10, 20, 44, 10)
+        return finish(pm)
+    }
+
+    private fun buildDebtIcon(): Texture {
+        val pm = blank()
+        pm.setColor(Color.valueOf("2E2A24"))
+        pm.fillRectangle(16, 8, 32, 48)
+        pm.setColor(Color.valueOf("D9CBA8"))
+        pm.fillRectangle(19, 11, 26, 42)
+        pm.setColor(Color.valueOf("8A1C1C"))
+        pm.fillRectangle(23, 18, 18, 3)
+        pm.fillRectangle(23, 26, 18, 3)
+        pm.fillRectangle(23, 34, 12, 3)
+        pm.setColor(Color.valueOf("D9A24A"))
+        pm.fillCircle(32, 48, 8)
+        pm.setColor(Color.valueOf("6E4A0E"))
+        pm.drawCircle(32, 48, 8)
         return finish(pm)
     }
 

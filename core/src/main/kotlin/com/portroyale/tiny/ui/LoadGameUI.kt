@@ -8,6 +8,11 @@ import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.save.SaveManager
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private val TIMESTAMP_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
 
 /** Load screen: lists every save found on disk: click one to load it immediately. */
 class LoadGameUI(private val onLoad: (saveName: String) -> Unit, private val onBack: () -> Unit) {
@@ -46,20 +51,21 @@ class LoadGameUI(private val onLoad: (saveName: String) -> Unit, private val onB
 
     private fun refreshList() {
         listTable.clear()
-        val saves = SaveManager.listSaves()
+        val saves = SaveManager.listSaveInfos()
         if (saves.isEmpty()) {
             listTable.add(Label("No saved games yet.", skin)).pad(8f)
             return
         }
-        for (name in saves) {
-            val button = TextButton(name, skin)
+        for (info in saves) {
+            val button = TextButton(info.name, skin)
             button.addListener(object : ClickListener() {
                 override fun clicked(event: InputEvent?, x: Float, y: Float) {
                     AudioManager.playClick()
-                    onLoad(name)
+                    onLoad(info.name)
                 }
             })
-            listTable.add(button).width(240f).pad(4f).row()
+            listTable.add(button).width(200f).pad(4f)
+            listTable.add(Label(TIMESTAMP_FORMAT.format(Date(info.savedAt)), skin)).width(150f).pad(4f).row()
         }
     }
 

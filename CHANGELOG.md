@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.4.4] - 2026-08-04
+
+### Added
+- New ship sprite art (5 tiers x 6 colors, AI-generated) replacing Kenney's Pirate Pack sprites
+  for every ship in the game: white sails for the player, black for pirates, and one distinct
+  color per colonial faction (Spain/England/France/Netherlands).
+- New hand-painted city-menu icon art (Market/Shipyard/Warehouse/Commandant), plus a Tavern
+  building added to the port hub menu as a placeholder - no functionality behind it yet.
+- Warehouses: buy one in a port, expand it as an upgrade, and store both goods and gold there via
+  a Market-like transfer screen.
+- A "Property" menu (icon under the minimap) listing everything the player has stored, by city -
+  cities with nothing stored are omitted.
+- An Exit button on the main menu.
+- Autosave every 10 minutes (overwrites a single autosave file); the save/load lists now show the
+  date and time of each save.
+- A combat-result notification on victory showing the gold reward, reusing the same dismissible
+  toast used for random sea events.
+- A defeat rework: losing a fight now costs the player all cargo and gold aboard, leaving them
+  with a "Wreck" - the smallest hull in the game, no sail, the lowest speed and cargo capacity of
+  any ship, zero combat capability, and immunity from NPC attacks - just enough to limp to a port.
+- An in-game clock running 10x faster than real time, currently used to denominate loan terms.
+- A loan system at the Commandant's Office: three fixed sums with interest and a repayment term
+  (roughly scaled to how long that sum would realistically take to earn back by trading). Missing
+  the deadline doubles the debt and turns the lending faction's ships hostile toward the player.
+  A debt icon above the minimap fills red as the deadline approaches, with a countdown beneath it.
+- Pirate variety: pirates now spawn at a random tier (1-5, matching hull size/sprite) with stats
+  and reward scaled accordingly, and a fight-or-flee AI - a pirate significantly weaker than the
+  ship it meets flees instead of engaging, and vice versa.
+
+### Fixed
+- Clicking water near a port could be misread as clicking the port itself; the port click radius
+  is now tighter.
+- Ships rendered backwards after the new sprite set was installed (its bow points toward the top
+  of the source image, opposite the old Kenney convention) - rotation fixed to match.
+
+### Changed
+- The autopilot route line is no longer drawn on the map.
+
 ## [0.4.3.1] - 2026-08-04
 
 ### Internal

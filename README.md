@@ -3,15 +3,15 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.3 - early prototype.** Sailing, trading with a living dynamic market, random sea
+> **Status: v0.4.4 - early prototype.** Sailing, trading with a living dynamic market, random sea
 > events, ship upgrades, combat, historical factions with reputation, a living map of AI ships,
-> audio, and a full main menu with save/load are all playable in a rough form; art and content
-> breadth are still early. See [Roadmap](#roadmap).
+> warehouses/property, loans, autosave, audio, and a full main menu with save/load are all
+> playable in a rough form; art and content breadth are still early. See [Roadmap](#roadmap).
 
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.3
+## What's here in v0.4.4
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -33,10 +33,18 @@ franchise's creators or publishers.
   - a **shipyard** - Ship Status (condition, upgrades, hull cleaning, repairs) is the primary
     screen; a "Buy a Ship" sub-screen offers six classes (Sloop/Cutter/Barque/Brigantine/Galleon/
     Man-of-War, each its own distinct hull livery) as a single row of cards;
-  - a **Commandant's Office** - shows standing with each colonial power; still a stub beyond
-    that, reserved for future quests.
-- A living map: trade and military ships patrol between their faction's own ports, pirates
-  wander between any port, all visible and faction-tinted. Pirates and hostile-reputation
+  - a **Commandant's Office** - standing with each colonial power, plus a loan system: borrow one
+    of three fixed sums with interest and a repayment term; missing the deadline doubles the debt
+    and turns that faction hostile (a red-filling debt icon with a countdown sits above the
+    minimap while a loan is outstanding);
+  - a **warehouse** - buy one, expand it as an upgrade, and store goods and gold there via a
+    Market-like transfer screen;
+  - a **Tavern** - present in the menu, not yet functional.
+  A **Property** menu (icon under the minimap) lists everything stored across every city with
+  anything in it.
+- A living map: trade and military ships patrol between their faction's own ports; pirates wander
+  between any port at a random tier (1-5, hull size and reward scaled to match) and flee rather
+  than engage a ship clearly stronger than them, and vice versa. Pirates and hostile-reputation
   military ships engage on approach; peaceful ships can be deliberately hunted down for loot.
   Ports are a safe harbor - no encounter ever triggers near one. Ships visibly dock - they
   disappear into a port on arrival (a slow purple glow marks where) and reappear only once you
@@ -46,20 +54,26 @@ franchise's creators or publishers.
   or goods chest, or a castaway who pays for a lift to a random port. Shown in a dismissible,
   centered notification; sailing and AI ships pause while one is open.
 - Turn-based combat with animated ship sprites: cannonballs fly between ships, hits flash, shots
-  can miss, maneuverability affects flee odds and evasion, and victory/defeat/flee outcomes
-  affect gold, cargo, and reputation with the loser's faction.
+  can miss, maneuverability affects flee odds and evasion. Victory shows a dismissible reward
+  notification (same style as sea events); defeat strips the player's cargo and gold and leaves
+  them with a "Wreck" - the smallest, unarmed, slowest hull in the game, just enough to reach a
+  port and immune to further NPC attacks - instead of a dead end.
+- An in-game clock, running 10x faster than real time, denominating loan terms (see Commandant's
+  Office above).
 - Music and sound: a rotating sailing playlist, a combat track, a port-arrival cue, and SFX for
   cannon fire/hits/coins/clicks/menu transitions - all controllable from Settings (volume slider
   + mute).
-- A main menu: **New Game** (name your captain), **Load**, **Save**, and **Settings** (audio,
-  fullscreen toggle, resolution). `Esc` pauses and reopens the same menu mid-game, resuming
-  exactly where play left off. Saves and settings persist as JSON files under the user's home
-  directory.
-- Ship sprite art from Kenney's Pirate Pack (CC0); a period-style serif font (Cormorant Garamond)
-  on a parchment-toned, bordered UI instead of placeholder styling; every hand-drawn icon (goods,
-  ships, hub menu, port marker) gets an automatic outline for a more consistent look. The UI
-  scales responsively to the window size, and map labels/icons hold a constant on-screen size
-  regardless of zoom.
+- A main menu: **New Game** (name your captain), **Load**, **Save**, **Settings** (audio,
+  fullscreen toggle, resolution), and **Exit**. `Esc` pauses and reopens the same menu mid-game,
+  resuming exactly where play left off. Saves and settings persist as JSON files under the user's
+  home directory; the game also autosaves every 10 minutes, and save/load lists show each save's
+  date and time.
+- New hand-painted ship and city-menu icon art (AI-generated): 5 ship tiers x 6 colors (white for
+  the player, black for pirates, one color per colonial faction) and Market/Shipyard/Warehouse/
+  Commandant icons. A period-style serif font (Cormorant Garamond) on a parchment-toned, bordered
+  UI instead of placeholder styling; hand-drawn pictogram icons elsewhere (goods, port marker)
+  still get an automatic outline for a consistent look. The UI scales responsively to the window
+  size, and map labels/icons hold a constant on-screen size regardless of zoom.
 
 ## Tech stack
 
@@ -140,16 +154,22 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
       of three
 - [x] **M6d** - random sea events with a new dismissible notification UI, restructured shipyard
       navigation
-- [x] **M7a** - packaging: a single distributable JAR (`:lwjgl3:shadowJar`) *(this release)*
-- [ ] **M7b** - Android/macOS builds
+- [x] **M7a** - packaging: a single distributable JAR (`:lwjgl3:shadowJar`)
+- [x] **M8** - new ship/city-icon art; warehouses and a Property menu; loans with a debt-hostility
+      consequence; autosave; a combat-result notification; a defeat rework (Wreck instead of a
+      dead end); pirate tier variety and flee/engage behavior; an in-game clock *(this release)*
+- [ ] **M8b** - Android/macOS builds
 
 ## Credits
 
 - The base map is [*Middle America relief location
   map*](https://commons.wikimedia.org/wiki/File:Middle_America_relief_location_map.png) by Uwe
   Dedering, licensed [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/deed.en).
-- Ship and tile sprites are from Kenney's [*Pirate
-  Pack*](https://kenney.nl/assets/pirate-pack) ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
+- Ship sprites (5 tiers x 6 colors) and city-menu icons (Market/Shipyard/Warehouse/Commandant/
+  Tavern) are AI-generated, with no identifiable human author/rights-holder to credit.
+- Tile sprites (currently unused) and an earlier, now-replaced set of ship sprites are from
+  Kenney's [*Pirate Pack*](https://kenney.nl/assets/pirate-pack)
+  ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
 - The UI font is [*Cormorant Garamond*](https://fonts.google.com/specimen/Cormorant+Garamond)
   ([SIL OFL 1.1](https://openfontlicense.org/)).
 - Background music is from the [*Ocean Music
