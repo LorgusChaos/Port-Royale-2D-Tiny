@@ -3,7 +3,7 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.4 - early prototype.** Sailing, trading with a living dynamic market, random sea
+> **Status: v0.4.5 - early prototype.** Sailing, trading with a living dynamic market, random sea
 > events, ship upgrades, combat, historical factions with reputation, a living map of AI ships,
 > warehouses/property, loans, autosave, audio, and a full main menu with save/load are all
 > playable in a rough form; art and content breadth are still early. See [Roadmap](#roadmap).
@@ -11,7 +11,7 @@ combat, deliberately kept small in scope for a solo/hobby project.
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.4
+## What's here in v0.4.5
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -70,10 +70,14 @@ franchise's creators or publishers.
   date and time.
 - New hand-painted ship and city-menu icon art (AI-generated): 5 ship tiers x 6 colors (white for
   the player, black for pirates, one color per colonial faction) and Market/Shipyard/Warehouse/
-  Commandant icons. A period-style serif font (Cormorant Garamond) on a parchment-toned, bordered
-  UI instead of placeholder styling; hand-drawn pictogram icons elsewhere (goods, port marker)
-  still get an automatic outline for a consistent look. The UI scales responsively to the window
-  size, and map labels/icons hold a constant on-screen size regardless of zoom.
+  Commandant/Tavern icons. The port hub itself is laid out directly over a matching AI-generated
+  frame background (a wooden shopfront with a nameplate banner) instead of a generic panel - the
+  port name and gold/cargo sit centered in the banner, and each destination's name is overlaid on
+  its own icon's board rather than a separate label underneath. A period-style serif font
+  (Cormorant Garamond) on a parchment-toned, bordered UI elsewhere; hand-drawn pictogram icons
+  (goods, port marker) still get an automatic outline for a consistent look. The UI scales
+  responsively to the window size, and map labels/icons hold a constant on-screen size regardless
+  of zoom.
 
 ## Tech stack
 
@@ -157,16 +161,35 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
 - [x] **M7a** - packaging: a single distributable JAR (`:lwjgl3:shadowJar`)
 - [x] **M8** - new ship/city-icon art; warehouses and a Property menu; loans with a debt-hostility
       consequence; autosave; a combat-result notification; a defeat rework (Wreck instead of a
-      dead end); pirate tier variety and flee/engage behavior; an in-game clock *(this release)*
+      dead end); pirate tier variety and flee/engage behavior; an in-game clock
+- [x] **M8c** - port hub redesign: a new AI-generated frame background replaces the generic panel,
+      with the city name and gold/cargo centered in its nameplate, each destination's name
+      overlaid on its own icon's board instead of a separate label, and a close (X) control
+      replacing the old "Set Sail" text button *(this release)*
 - [ ] **M8b** - Android/macOS builds
+- [ ] **M9** - flesh out the city hub's remaining sub-screens beyond their current stub/
+      placeholder state (Tavern, deeper Shipyard functionality, etc.)
+- [ ] **M10** - combat rework: a crew mechanic (headcount, losses during a fight), boarding,
+      alternative ammunition types purchasable at the Shipyard, and hiring crew/a captain (with a
+      choice of who) at the Tavern
+- [ ] **M11** - chase-mechanic polish, more ships on the map, a ship-stat balance pass (speed/
+      cargo/damage/etc), an NPC-encounter popup (Fight / Sail On) instead of automatic engagement,
+      and an "attack" distinction - a ship that was actively pursuing the player counts as an
+      attack rather than a random encounter, removing the "Sail On" option in that case
+- [ ] **M12** - expand the Commandant's Office beyond reputation + loans
+- [ ] **M13** - once every city-menu sub-screen is built out, restyle their UI to match the port
+      hub's art (see M8)
+- [ ] **M14** - deeper faction logic and its effect on gameplay
+- [ ] **M15** - economy balance pass
 
 ## Credits
 
 - The base map is [*Middle America relief location
   map*](https://commons.wikimedia.org/wiki/File:Middle_America_relief_location_map.png) by Uwe
   Dedering, licensed [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/deed.en).
-- Ship sprites (5 tiers x 6 colors) and city-menu icons (Market/Shipyard/Warehouse/Commandant/
-  Tavern) are AI-generated, with no identifiable human author/rights-holder to credit.
+- Ship sprites (5 tiers x 6 colors), city-menu icons (Market/Shipyard/Warehouse/Commandant/
+  Tavern), and the port hub's frame background art are AI-generated, with no identifiable human
+  author/rights-holder to credit.
 - Tile sprites (currently unused) and an earlier, now-replaced set of ship sprites are from
   Kenney's [*Pirate Pack*](https://kenney.nl/assets/pirate-pack)
   ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).

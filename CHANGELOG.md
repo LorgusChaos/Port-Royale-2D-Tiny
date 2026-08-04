@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.5] - 2026-08-04
+
+### Changed
+- Port hub redesign: the city menu now lays out directly over a new AI-generated frame background
+  (a wooden shopfront with a nameplate banner) instead of a generic Scene2D panel. The port name
+  and gold/cargo status are centered in the nameplate; each destination's name is overlaid on its
+  own icon's board instead of a separate label underneath; a close (X) control in the frame
+  replaces the old "Set Sail" text button. Overlay text uses a larger, bolder independent font so
+  it stays legible at smaller window sizes, and the icon + its name now scale together on hover
+  instead of the name visibly detaching from a growing icon.
+
+### Fixed
+- The frame's background-removal pass was treating some near-black decorative details (fine
+  crack linework in the wood) as background, punching stray transparent holes straight through to
+  the sea behind. Background removal now requires a solid, several-pixels-thick dark region
+  (a morphological opening) before treating it as removable, so thin dark linework survives.
+
+### Internal
+- Roadmap expanded with the next several planned milestones (city sub-menu buildout, a crew/
+  boarding combat rework, chase-mechanic and ship-balance polish, expanded Commandant/faction
+  logic, economy balance) - no gameplay changes yet.
+
 ## [0.4.4] - 2026-08-04
 
 ### Added

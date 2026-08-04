@@ -93,19 +93,21 @@ object UiSkinFactory {
      *  onto the world SpriteBatch) can get their OWN independent instance of the same game font -
      *  never hand out [sharedFont] itself for that, since its BitmapFontData.scale is mutable
      *  global state that every skin-based screen relies on staying at the skin's own size. */
-    fun generateFont(size: Int): BitmapFont {
+    fun generateFont(size: Int, color: Color = Color.BLACK, borderRatio: Float = 0.035f): BitmapFont {
         val generator = FreeTypeFontGenerator(Gdx.files.internal("fonts/cormorant_garamond.ttf"))
         val param = FreeTypeFontGenerator.FreeTypeFontParameter()
         param.size = size
         param.minFilter = Texture.TextureFilter.Linear
         param.magFilter = Texture.TextureFilter.Linear
-        param.color = Color.BLACK
+        param.color = color
         // Cormorant Garamond's default instance is its "Light" weight, and libGDX's FreeType
         // wrapper has no API to pick a heavier weight from a variable font - thickening the
-        // outline is the standard way to fake bold out of a font that doesn't have one. Kept
-        // thin: the outline only grows glyph INK, not the character-spacing metrics, so a wider
-        // border eats into the gaps between letters and makes them visually run together.
-        param.borderWidth = size * 0.035f
+        // outline is the standard way to fake bold out of a font that doesn't have one. The
+        // default ratio is kept thin since the outline only grows glyph INK, not the
+        // character-spacing metrics, so a wider border eats into the gaps between letters and
+        // makes them visually run together - callers overlaying text on busy art (e.g. the port
+        // hub's frame) pass a bolder ratio since legibility there matters more than dense text.
+        param.borderWidth = size * borderRatio
         param.borderColor = Color.BLACK
         param.borderStraight = true
         val font = generator.generateFont(param)
