@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.5.1] - 2026-08-06
+
+### Internal
+- Added `Project design/`: working design docs (design pillars, progression ceilings, fleet/
+  captains, a unified combat threat model, warehouse speculation, faction reputation conflict,
+  route safety, world expansion, and a project-scope/hardware-requirements estimate) plus a
+  roadmap-integration pass tying them to concrete milestones. Root `README.md`'s Roadmap section
+  now reflects the full M9-M15b breakdown instead of the earlier flat M9-M15 stub list. No
+  gameplay or code changes.
+
 ## [0.4.5] - 2026-08-04
 
 ### Changed

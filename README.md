@@ -167,20 +167,52 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
       overlaid on its own icon's board instead of a separate label, and a close (X) control
       replacing the old "Set Sail" text button *(this release)*
 - [ ] **M8b** - Android/macOS builds
+
+M9 onward follow a design pass recorded under [`Project design/`](Project%20design/) - the
+"why", not just the "what" (design pillars, progression ceilings, the fleet/threat/warehouse/
+faction systems below, and a project-scope/hardware-requirements estimate). Order follows one
+rule: cheapest first for quick wins, riskiest next while the codebase is still small.
+
 - [ ] **M9** - flesh out the city hub's remaining sub-screens beyond their current stub/
-      placeholder state (Tavern, deeper Shipyard functionality, etc.)
-- [ ] **M10** - combat rework: a crew mechanic (headcount, losses during a fight), boarding,
-      alternative ammunition types purchasable at the Shipyard, and hiring crew/a captain (with a
-      choice of who) at the Tavern
+      placeholder state (deeper Shipyard functionality, etc.) - Tavern specifically stays a
+      stub until M10a, where it actually comes online
+- [ ] **M9b** - warehouse speculation UX: a first-purchase tooltip explaining that supply/
+      prices drift back over time, plus a "price above/below normal" indicator in the market
+      screen reusing the map's existing surplus/shortage icon language - the underlying
+      mechanic already exists (v0.4.1's living market), this just makes it legible
+- [ ] **M10a** - Fleet MVP: hire a captain at the Tavern (fixed cost, scaling up per
+      additional captain), assign a second ship a fixed port-to-port-to-good trade route,
+      simulated once per in-game day, results reported through the existing toast
+      notification; losses are real (no bailout) - the riskiest new architecture in the
+      project, deliberately built while the codebase is still small
+- [ ] **M10b** - unified threat model: extends the existing tier-based fight-or-flee with
+      reputation as a second factor (how *persistently* a hostile ship pursues, not just
+      whether it attacks) - the same module drives both the player's own encounters and
+      captains' auto-resolved ones from M10a
+- [ ] **M10c** - crew/boarding combat rework: headcount, losses during a fight, boarding,
+      alternative ammunition types - *priority under review*; combat is meant to stay a
+      support system rather than a deep one of its own, so this waits until M10a/M10b show
+      whether combat actually feels shallow in practice
 - [ ] **M11** - chase-mechanic polish, more ships on the map, a ship-stat balance pass (speed/
-      cargo/damage/etc), an NPC-encounter popup (Fight / Sail On) instead of automatic engagement,
-      and an "attack" distinction - a ship that was actively pursuing the player counts as an
-      attack rather than a random encounter, removing the "Sail On" option in that case
-- [ ] **M12** - expand the Commandant's Office beyond reputation + loans
+      cargo/damage/etc), an NPC-encounter popup (Fight / Sail On) instead of automatic
+      engagement, and an "attack" distinction - a ship that was actively pursuing the player
+      counts as an attack rather than a random encounter, removing the "Sail On" option in
+      that case
+- [ ] **M11b** - route safety: a simple track record per port pair ("N safe trips, M threat
+      encounters"), shown when assigning a captain's route - deliberately not a numeric
+      "danger score", to stay consistent with not handing the player a full picture upfront
+- [ ] **M12** - expand the Commandant's Office beyond reputation + loans, including tying
+      loans to fleet expansion (borrowing specifically to afford a second ship/captain sooner)
 - [ ] **M13** - once every city-menu sub-screen is built out, restyle their UI to match the port
-      hub's art (see M8)
-- [ ] **M14** - deeper faction logic and its effect on gameplay
-- [ ] **M15** - economy balance pass
+      hub's art (see M8c)
+- [ ] **M14** - faction conflict: trading a rival faction's goods (bought from them) with
+      their competitor costs reputation with the original faction, cumulatively - gives the
+      "Influence" status ceiling a real trade-off (3 of 4 factions at max reputation, not 4 of 4)
+- [ ] **M14b** - world expansion: grow the port roster beyond the current twelve - mostly
+      content work (new entries in the already-parameterized port/market data), done after
+      M14 so the new ports don't need the faction-conflict balance recalibrated twice
+- [ ] **M15** - economy balance pass, now with real thresholds to calibrate against (status
+      ceilings, captain hiring costs, the M14 reputation penalty) instead of placeholders
 
 ## Credits
 
