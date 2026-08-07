@@ -16,12 +16,16 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector2
+import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.utils.viewport.FitViewport
 import com.badlogic.gdx.utils.viewport.Viewport
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.combat.CombatOutcome
 import com.portroyale.tiny.combat.CombatState
 import com.portroyale.tiny.combat.ShipCombatant
+import com.portroyale.tiny.economy.Captain
+import com.portroyale.tiny.economy.ENCOUNTER_COOLDOWN_SECONDS
+import com.portroyale.tiny.economy.FleetSimulation
 import com.portroyale.tiny.economy.Good
 import com.portroyale.tiny.economy.MarketState
 import com.portroyale.tiny.economy.Player
@@ -31,12 +35,15 @@ import com.portroyale.tiny.factions.REPUTATION_MIN
 import com.portroyale.tiny.save.AUTOSAVE_NAME
 import com.portroyale.tiny.save.SaveManager
 import com.portroyale.tiny.save.SettingsManager
+import com.portroyale.tiny.ships.ShipType
 import com.portroyale.tiny.ships.ShipTypes
 import com.portroyale.tiny.world.AiShip
 import com.portroyale.tiny.world.AiShipFactory
 import com.portroyale.tiny.world.AiShipRole
+import com.portroyale.tiny.ui.CaptainStatusUI
 import com.portroyale.tiny.ui.CombatUI
 import com.portroyale.tiny.ui.EventToastUI
+import com.portroyale.tiny.ui.FleetDockUI
 import com.portroyale.tiny.ui.FortressUI
 import com.portroyale.tiny.ui.HudOverlayUI
 import com.portroyale.tiny.ui.IconFactory
@@ -50,9 +57,11 @@ import com.portroyale.tiny.ui.SaveGameUI
 import com.portroyale.tiny.ui.SettingsUI
 import com.portroyale.tiny.ui.ShipStatusUI
 import com.portroyale.tiny.ui.ShipyardUI
+import com.portroyale.tiny.ui.TavernUI
 import com.portroyale.tiny.ui.UiSkinFactory
 import com.portroyale.tiny.ui.WarehouseUI
 import com.portroyale.tiny.world.GameClock
+import com.portroyale.tiny.world.GameSpeed
 import com.portroyale.tiny.world.MapProjection
 import com.portroyale.tiny.world.Ports
 import com.portroyale.tiny.world.SeaEventPoint
@@ -95,6 +104,11 @@ private const val PORT_CLICK_RADIUS = 45f
 // ship to start a chase, so plotting a normal course near a passing ship doesn't accidentally
 // hijack the click into hunt mode (which chases in a straight line with no obstacle avoidance).
 private const val SHIP_HUNT_CLICK_RADIUS = 3f
+// A fleet ship is the player's own property, a deliberate click target rather than something
+// that needs protecting from accidental hijack the way SHIP_HUNT_CLICK_RADIUS does - larger than
+// that on purpose.
+private const val FLEET_SHIP_CLICK_RADIUS = 8f
+private const val FLEET_SHIP_SPRITE_SCALE = 0.8f
 private const val BASE_SHIP_SPRITE_WIDTH = 13f
 private const val PORT_ICON_SIZE = 26f
 private const val AI_SHIP_ENGAGE_RADIUS = 52f
@@ -134,6 +148,12 @@ private const val REJECTED_CLICK_MARKER_SIZE = 20f
 private const val MIN_ZOOM = 0.075f
 private const val MAX_ZOOM = 1f
 private const val ZOOM_STEP = 0.1f
+
+/** Camera zoom snapped to whenever the player jumps to a fleet ship (see jumpToCaptain) - 90%
+ *  of the way from fully zoomed out (MAX_ZOOM) toward fully zoomed in (MIN_ZOOM), a close zoom-in
+ *  so the ship itself is the clear focus. Tune this one constant if 90% ends up too close/too
+ *  far. */
+private const val JUMP_TO_SHIP_ZOOM = MAX_ZOOM - 0.9f * (MAX_ZOOM - MIN_ZOOM)
 private const val EDGE_PAN_MARGIN = 40f
 private const val PAN_SPEED = 1800f
 private const val MINIMAP_WIDTH = 240f
@@ -142,7 +162,7 @@ private const val MINIMAP_MARGIN = 16f
 
 private enum class NavMode { MANUAL, AUTOPILOT }
 private enum class GameMode { SAILING, IN_PORT, COMBAT }
-private enum class PortScreen { HUB, MARKET, SHIPYARD, SHIP_STATUS, FORTRESS, WAREHOUSE }
+private enum class PortScreen { HUB, MARKET, SHIPYARD, SHIP_STATUS, FORTRESS, WAREHOUSE, TAVERN, DOCKS }
 private enum class AppState { MENU, PLAYING }
 private enum class MenuScreen { MAIN, NEW_GAME, LOAD, SAVE, SETTINGS }
 
@@ -177,6 +197,8 @@ class PortRoyaleGame : ApplicationAdapter() {
     private lateinit var shipStatusUI: ShipStatusUI
     private lateinit var fortressUI: FortressUI
     private lateinit var warehouseUI: WarehouseUI
+    private lateinit var tavernUI: TavernUI
+    private lateinit var fleetDockUI: FleetDockUI
     private lateinit var combatUI: CombatUI
     private lateinit var mainMenuUI: MainMenuUI
     private lateinit var newGameUI: NewGameUI
@@ -187,6 +209,8 @@ class PortRoyaleGame : ApplicationAdapter() {
     private lateinit var hudOverlayUI: HudOverlayUI
     private lateinit var propertyUI: PropertyUI
     private var propertyOpen = false
+    private lateinit var captainStatusUI: CaptainStatusUI
+    private var captainStatusOpen = false
 
     private val player = Player()
     private var gameMode = GameMode.SAILING
@@ -282,13 +306,16 @@ class PortRoyaleGame : ApplicationAdapter() {
             onOpenShipyard = ::openShipStatus,
             onOpenFortress = ::openFortress,
             onOpenWarehouse = ::openWarehouse,
+            onOpenTavern = ::openTavern,
             onSetSail = ::leavePort
         )
         marketUI = MarketUI(player, onBack = ::openHub)
         shipyardUI = ShipyardUI(player, onBack = ::openShipStatus)
-        shipStatusUI = ShipStatusUI(player, onBack = ::openHub, onOpenShipyard = ::openShipyard)
+        shipStatusUI = ShipStatusUI(player, onBack = ::openHub, onOpenShipyard = ::openShipyard, onOpenDocks = ::openDocks)
         fortressUI = FortressUI(player, onBack = ::openHub)
-        warehouseUI = WarehouseUI(player, onBack = ::openHub)
+        tavernUI = TavernUI(player, distanceBetween = ::fleetSeaDistance, onBack = ::openHub)
+        fleetDockUI = FleetDockUI(player, onBack = ::openShipStatus)
+        warehouseUI = WarehouseUI(player, onBack = ::openHub, onFirstWarehousePurchased = ::showFirstWarehouseTip)
         combatUI = CombatUI(onCombatEnd = ::finishCombat)
 
         mainMenuUI = MainMenuUI(
@@ -305,7 +332,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         settingsUI = SettingsUI(onBack = ::showMainMenu)
         eventToastUI = EventToastUI()
         propertyUI = PropertyUI(player, onBack = ::closeProperty)
-        hudOverlayUI = HudOverlayUI(onOpenProperty = ::openProperty)
+        captainStatusUI = CaptainStatusUI(player, onBack = ::closeCaptainStatus)
+        hudOverlayUI = HudOverlayUI(onOpenProperty = ::openProperty, onJumpToCaptain = ::jumpToCaptain, onCycleGameSpeed = GameSpeed::cycle)
         sailingWithToastInputProcessor = InputMultiplexer(eventToastUI.stage, hudOverlayUI.stage, sailingInputProcessor)
 
         val settings = SettingsManager.load()
@@ -337,6 +365,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         shipStatusUI.resize(width, height)
         fortressUI.resize(width, height)
         warehouseUI.resize(width, height)
+        tavernUI.resize(width, height)
+        fleetDockUI.resize(width, height)
         combatUI.resize(width, height)
         mainMenuUI.resize(width, height)
         newGameUI.resize(width, height)
@@ -346,6 +376,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         eventToastUI.resize(width, height)
         hudOverlayUI.resize(width, height)
         propertyUI.resize(width, height)
+        captainStatusUI.resize(width, height)
     }
 
     override fun render() {
@@ -357,9 +388,17 @@ class PortRoyaleGame : ApplicationAdapter() {
             handleEscape()
         }
 
+        // The world-sim clock: real deltaTime scaled by the player's chosen game speed (see
+        // GameSpeed/HudOverlayUI's clock control), used everywhere something is meant to speed
+        // up/slow down with it - ship movement, GameClock, fouling, market drift, sea-event
+        // timers. Deliberately NOT used for UI/meta things below (Scene2D stage.act, camera pan,
+        // the autosave interval, the rejected-click flash) - those should feel the same at any
+        // game speed, only the simulated world should visibly accelerate.
+        val worldDelta = Gdx.graphics.deltaTime * GameSpeed.multiplier
+
         if (appState == AppState.PLAYING) {
-            MarketState.update(Gdx.graphics.deltaTime)
-            GameClock.update(Gdx.graphics.deltaTime)
+            MarketState.update(worldDelta)
+            GameClock.update(worldDelta)
             if (!shipVisible) {
                 portPulseTime += Gdx.graphics.deltaTime
             }
@@ -370,19 +409,21 @@ class PortRoyaleGame : ApplicationAdapter() {
             }
             checkLoanOverdue()
             updateDebtHud()
+            updateFleet()
+            updateFleetEncounters(Gdx.graphics.deltaTime)
         }
 
         // A sea-event toast freezes sailing entirely while it's up - ship movement, AI ships,
         // encounters, and further events all wait, so nothing can happen unseen behind it and a
         // click meant for its close button can't also be read as a course-setting click.
-        if (appState == AppState.PLAYING && gameMode == GameMode.SAILING && !eventToastUI.isShowing && !propertyOpen) {
-            handleInput()
-            if (huntedShip != null) updateShipHunt(Gdx.graphics.deltaTime) else updateAutopilot(Gdx.graphics.deltaTime)
-            updateAiShips(Gdx.graphics.deltaTime)
+        if (appState == AppState.PLAYING && gameMode == GameMode.SAILING && !eventToastUI.isShowing && !propertyOpen && !captainStatusOpen) {
+            handleInput(worldDelta)
+            if (huntedShip != null) updateShipHunt(worldDelta) else updateAutopilot(worldDelta)
+            updateAiShips(worldDelta)
             checkAiEncounters()
-            updateSeaEvents(Gdx.graphics.deltaTime)
+            updateSeaEvents(worldDelta)
             if (!updateDragPan()) updateCameraPan(Gdx.graphics.deltaTime)
-            player.condition.accumulateFouling(Gdx.graphics.deltaTime)
+            player.condition.accumulateFouling(worldDelta)
         }
         if (rejectedClickTimer > 0f) {
             rejectedClickTimer -= Gdx.graphics.deltaTime
@@ -403,6 +444,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         drawPorts()
         if (gameActive) {
             drawAiShips()
+            drawFleetShips()
             if (shipVisible) drawShip()
             drawMarketIndicators()
         }
@@ -425,12 +467,12 @@ class PortRoyaleGame : ApplicationAdapter() {
 
         if (gameActive) {
             drawMinimap()
+            hudOverlayUI.setDate(GameClock.calendarLabel)
+            hudOverlayUI.setGold(player.gold)
+            hudOverlayUI.setGameSpeed(GameSpeed.multiplier)
+            hudOverlayUI.setCaptains(player.captains.filter { !it.isIdle })
             hudOverlayUI.render(Gdx.graphics.deltaTime)
         }
-        // Not gated to GameMode.SAILING: a delivery toast can be triggered by arriveAtPort()
-        // switching to GameMode.IN_PORT earlier in this same frame, before this draw pass runs.
-        if (appState == AppState.PLAYING) eventToastUI.render(Gdx.graphics.deltaTime)
-        if (propertyOpen) propertyUI.render(Gdx.graphics.deltaTime)
 
         if (appState == AppState.PLAYING) {
             when (gameMode) {
@@ -441,6 +483,8 @@ class PortRoyaleGame : ApplicationAdapter() {
                     PortScreen.SHIP_STATUS -> shipStatusUI.render(Gdx.graphics.deltaTime)
                     PortScreen.FORTRESS -> fortressUI.render(Gdx.graphics.deltaTime)
                     PortScreen.WAREHOUSE -> warehouseUI.render(Gdx.graphics.deltaTime)
+                    PortScreen.TAVERN -> tavernUI.render(Gdx.graphics.deltaTime)
+                    PortScreen.DOCKS -> fleetDockUI.render(Gdx.graphics.deltaTime)
                 }
                 GameMode.COMBAT -> combatUI.render(Gdx.graphics.deltaTime)
                 GameMode.SAILING -> {}
@@ -454,9 +498,18 @@ class PortRoyaleGame : ApplicationAdapter() {
                 MenuScreen.SETTINGS -> settingsUI.render(Gdx.graphics.deltaTime)
             }
         }
+
+        if (propertyOpen) propertyUI.render(Gdx.graphics.deltaTime)
+        if (captainStatusOpen) captainStatusUI.render(Gdx.graphics.deltaTime)
+        // Always last, regardless of screen: a toast (sea event, combat outcome, loan overdue,
+        // warehouse first-purchase tip, etc.) must draw on top of whatever it interrupted, not
+        // get painted over by that screen's own render call above. Not gated to GameMode.SAILING
+        // either - e.g. a delivery toast can be triggered by arriveAtPort() switching to
+        // GameMode.IN_PORT earlier in this same frame, before this draw pass runs.
+        if (appState == AppState.PLAYING) eventToastUI.render(Gdx.graphics.deltaTime)
     }
 
-    private fun handleInput() {
+    private fun handleInput(delta: Float) {
         var moveX = 0f
         var moveY = 0f
         if (Gdx.input.isKeyPressed(Keys.W) || Gdx.input.isKeyPressed(Keys.UP)) moveY += 1f
@@ -473,7 +526,6 @@ class PortRoyaleGame : ApplicationAdapter() {
             val len = Vector2(moveX, moveY).len()
             moveX /= len
             moveY /= len
-            val delta = Gdx.graphics.deltaTime
             val speed = player.effectiveSpeed
             tryMove(moveX * speed * delta, moveY * speed * delta)
             shipHeadingDeg = MathUtils.atan2(moveY, moveX) * MathUtils.radDeg
@@ -482,6 +534,14 @@ class PortRoyaleGame : ApplicationAdapter() {
         if (Gdx.input.isButtonJustPressed(Buttons.LEFT)) {
             touchPoint.set(Gdx.input.x.toFloat(), Gdx.input.y.toFloat())
             viewport.unproject(touchPoint)
+
+            val activeCaptains = player.captains.filter { !it.isIdle }
+            val nearestCaptain = activeCaptains.minByOrNull { fleetShipTransform(it)?.first?.dst(touchPoint) ?: Float.MAX_VALUE }
+            val nearestCaptainPos = nearestCaptain?.let { fleetShipTransform(it)?.first }
+            if (nearestCaptain != null && nearestCaptainPos != null && nearestCaptainPos.dst(touchPoint) <= FLEET_SHIP_CLICK_RADIUS) {
+                openCaptainStatus(nearestCaptain)
+                return
+            }
 
             val nearestShip = aiShips.minByOrNull { it.position.dst(touchPoint) }
             if (nearestShip != null && nearestShip.position.dst(touchPoint) <= SHIP_HUNT_CLICK_RADIUS) {
@@ -601,6 +661,21 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
     }
 
+    /** Snaps the camera to a fleet captain's ship - from the HUD's captain-icon row (see
+     *  HudOverlayUI.setCaptains), not the on-map click-to-open-status icon, so this has to find
+     *  the ship without the player having spotted it on screen first. Prefers the live sailing
+     *  position (see fleetShipTransform); falls back to wherever the ship is docked only if that
+     *  ever comes back null (defensive - every non-idle captain currently always resolves to a
+     *  sailing position, see Captain's class doc on the always-sailing abstraction). */
+    private fun jumpToCaptain(captain: Captain) {
+        val target = fleetShipTransform(captain)?.first
+            ?: player.ownedShips.find { it.id == captain.shipId }?.let { portApproachPos(it.dockedAt) }
+            ?: return
+        camera.position.set(target.x, target.y, 0f)
+        camera.zoom = JUMP_TO_SHIP_ZOOM
+        clampCamera()
+    }
+
     private fun updateAutopilot(delta: Float) {
         if (navMode != NavMode.AUTOPILOT || path.isEmpty()) return
 
@@ -667,46 +742,85 @@ class PortRoyaleGame : ApplicationAdapter() {
         openHub()
     }
 
+    /** Every screen reachable while appState == PLAYING needs eventToastUI.stage in its input
+     *  chain, not just the sailing view - a toast (e.g. the warehouse first-purchase tip, or a
+     *  loan going overdue) can be triggered while the player is on any of these screens, and
+     *  without this its close button would be undismissable until the player backs out. See also
+     *  the render() ordering note on why eventToastUI draws last. */
+    private fun withToastInput(stage: Stage): InputMultiplexer = InputMultiplexer(eventToastUI.stage, stage)
+
     private fun openHub() {
         portScreen = PortScreen.HUB
         portHubUI.open(currentPortName)
-        Gdx.input.inputProcessor = portHubUI.stage
+        Gdx.input.inputProcessor = withToastInput(portHubUI.stage)
     }
 
     private fun openMarket() {
         portScreen = PortScreen.MARKET
         marketUI.open(currentPortName)
-        Gdx.input.inputProcessor = marketUI.stage
+        Gdx.input.inputProcessor = withToastInput(marketUI.stage)
     }
 
     private fun openShipyard() {
         portScreen = PortScreen.SHIPYARD
-        shipyardUI.open()
-        Gdx.input.inputProcessor = shipyardUI.stage
+        shipyardUI.open(currentPortName)
+        Gdx.input.inputProcessor = withToastInput(shipyardUI.stage)
     }
 
     private fun openShipStatus() {
         portScreen = PortScreen.SHIP_STATUS
         shipStatusUI.open()
-        Gdx.input.inputProcessor = shipStatusUI.stage
+        Gdx.input.inputProcessor = withToastInput(shipStatusUI.stage)
     }
 
     private fun openFortress() {
         portScreen = PortScreen.FORTRESS
         fortressUI.open(currentPortName)
-        Gdx.input.inputProcessor = fortressUI.stage
+        Gdx.input.inputProcessor = withToastInput(fortressUI.stage)
     }
 
     private fun openWarehouse() {
         portScreen = PortScreen.WAREHOUSE
         warehouseUI.open(currentPortName)
-        Gdx.input.inputProcessor = warehouseUI.stage
+        Gdx.input.inputProcessor = withToastInput(warehouseUI.stage)
+    }
+
+    private fun openTavern() {
+        portScreen = PortScreen.TAVERN
+        tavernUI.open(currentPortName)
+        Gdx.input.inputProcessor = withToastInput(tavernUI.stage)
+    }
+
+    private fun openDocks() {
+        portScreen = PortScreen.DOCKS
+        fleetDockUI.open(currentPortName)
+        Gdx.input.inputProcessor = withToastInput(fleetDockUI.stage)
+    }
+
+    private fun showFirstWarehouseTip() {
+        eventToastUI.show(
+            "Prices drift back toward normal over about 10 in-game minutes. Storing goods here " +
+                "instead of selling right away - and waiting out a low price - can be worth more " +
+                "than an instant sale.",
+            IconFactory.warehouse
+        )
     }
 
     private fun openProperty() {
         propertyOpen = true
         propertyUI.open()
-        Gdx.input.inputProcessor = propertyUI.stage
+        Gdx.input.inputProcessor = withToastInput(propertyUI.stage)
+    }
+
+    private fun openCaptainStatus(captain: Captain) {
+        captainStatusOpen = true
+        captainStatusUI.open(captain)
+        Gdx.input.inputProcessor = withToastInput(captainStatusUI.stage)
+    }
+
+    private fun closeCaptainStatus() {
+        captainStatusOpen = false
+        Gdx.input.inputProcessor = sailingWithToastInputProcessor
     }
 
     private fun closeProperty() {
@@ -746,15 +860,19 @@ class PortRoyaleGame : ApplicationAdapter() {
         appState = AppState.PLAYING
         Gdx.input.inputProcessor = when (gameMode) {
             GameMode.SAILING -> sailingWithToastInputProcessor
-            GameMode.IN_PORT -> when (portScreen) {
-                PortScreen.HUB -> portHubUI.stage
-                PortScreen.MARKET -> marketUI.stage
-                PortScreen.SHIPYARD -> shipyardUI.stage
-                PortScreen.SHIP_STATUS -> shipStatusUI.stage
-                PortScreen.FORTRESS -> fortressUI.stage
-                PortScreen.WAREHOUSE -> warehouseUI.stage
-            }
-            GameMode.COMBAT -> combatUI.stage
+            GameMode.IN_PORT -> withToastInput(
+                when (portScreen) {
+                    PortScreen.HUB -> portHubUI.stage
+                    PortScreen.MARKET -> marketUI.stage
+                    PortScreen.SHIPYARD -> shipyardUI.stage
+                    PortScreen.SHIP_STATUS -> shipStatusUI.stage
+                    PortScreen.FORTRESS -> fortressUI.stage
+                    PortScreen.WAREHOUSE -> warehouseUI.stage
+                    PortScreen.TAVERN -> tavernUI.stage
+                    PortScreen.DOCKS -> fleetDockUI.stage
+                }
+            )
+            GameMode.COMBAT -> withToastInput(combatUI.stage)
         }
     }
 
@@ -783,6 +901,7 @@ class PortRoyaleGame : ApplicationAdapter() {
     }
 
     private fun beginPlaying() {
+        GameSpeed.reset()
         shipHeadingDeg = 0f
         navMode = NavMode.MANUAL
         path = emptyList()
@@ -822,6 +941,9 @@ class PortRoyaleGame : ApplicationAdapter() {
         player.warehouses.clear()
         player.warehouses.putAll(SaveManager.resolveWarehouses(data))
         player.loan = SaveManager.resolveLoan(data)
+        player.loadFleet(SaveManager.resolveOwnedShips(data), data.activeShipId)
+        player.captains.clear()
+        player.captains.addAll(SaveManager.resolveCaptains(data))
         shipPosition.set(data.shipX, data.shipY)
         beginPlaying()
     }
@@ -849,7 +971,7 @@ class PortRoyaleGame : ApplicationAdapter() {
     }
 
     private fun updateAiShips(delta: Float) {
-        val myTier = playerShipTier()
+        val myTier = shipTier(player.ship)
         for (ship in aiShips) {
             if (ship.role == AiShipRole.PIRATE && ship.tier < myTier &&
                 shipPosition.dst(ship.position) < PIRATE_FLEE_AWARENESS_RADIUS
@@ -912,25 +1034,29 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
     }
 
-    /** A pirate only picks a fight it can plausibly win: it engages when its own tier is at
-     *  least the player's current ship tier, and otherwise flees on sight instead (see the flee
-     *  movement branch in updateAiShips()) - a Brigantine-tier pirate ducks a Galleon-tier
-     *  player, and a Galleon-tier pirate has no reason to duck a Brigantine-tier player. A
-     *  faction's military only turns hostile once the player's reputation with that faction has
-     *  soured (or a loan with them has gone overdue - see checkLoanOverdue). Trade ships are
-     *  never auto-hostile - the player has to deliberately click one to go after it (see
-     *  [handleInput] / [huntedShip]). */
-    private fun isHostile(ship: AiShip): Boolean {
-        if (ship.role == AiShipRole.PIRATE) return ship.tier >= playerShipTier()
+    /** A pirate only picks a fight it can plausibly win: it engages a ship whose tier is at most
+     *  its own, and otherwise flees on sight instead (see the flee movement branch in
+     *  updateAiShips()) - a Brigantine-tier pirate ducks a Galleon-tier target, and a Galleon-
+     *  tier pirate has no reason to duck a Brigantine-tier one. [targetTier] generalizes this
+     *  over whoever might be encountering the pirate - the player (see checkAiEncounters) or a
+     *  fleet captain's ship (see updateFleetEncounters), same comparison either way since a
+     *  pirate has no idea who's steering. A faction's military only turns hostile once the
+     *  player's reputation with that faction has soured (or a loan with them has gone overdue -
+     *  see checkLoanOverdue) - shared across the whole fleet, not tracked per ship, since every
+     *  hull still sails under the player's own flag. Trade ships are never auto-hostile to the
+     *  player (has to deliberately click one to go after it - see [handleInput] / [huntedShip]),
+     *  and by extension never hostile to a fleet captain either. */
+    private fun isHostile(ship: AiShip, targetTier: Int): Boolean {
+        if (ship.role == AiShipRole.PIRATE) return ship.tier >= targetTier
         if (ship.role != AiShipRole.MILITARY) return false
         val faction = ship.faction ?: return false
         return (player.reputation[faction] ?: 0) <= REPUTATION_HOSTILE_THRESHOLD
     }
 
     /** 1 (Sloop) through 5 (Galleon) matching ShipTypes.ALL's own order; a Wreck counts as the
-     *  weakest possible tier (irrelevant in practice - checkAiEncounters already exempts it from
-     *  every encounter, hostile or not). */
-    private fun playerShipTier(): Int = (ShipTypes.ALL.indexOf(player.ship) + 1).coerceAtLeast(1)
+     *  weakest possible tier (irrelevant in practice for the player - checkAiEncounters already
+     *  exempts it from every encounter, hostile or not; a fleet ship is never a Wreck at all). */
+    private fun shipTier(shipType: ShipType): Int = (ShipTypes.ALL.indexOf(shipType) + 1).coerceAtLeast(1)
 
     /** Ports (and the water right around them) are a safe harbor - no encounter can trigger
      *  there, so leaving a port never dumps the player straight into an ambush from whatever
@@ -976,13 +1102,71 @@ class PortRoyaleGame : ApplicationAdapter() {
         hudOverlayUI.setDebt(visible = true, fraction = fraction, countdownText = countdownText)
     }
 
+    /** Ticks every hired captain's route (see FleetSimulation) - runs unconditionally whenever
+     *  appState == PLAYING, same as MarketState/GameClock above, so a captain's clock keeps
+     *  advancing no matter which screen the player is actually looking at. Routine arrivals
+     *  (a trade went fine) deliberately do NOT pop a toast - only a genuine loss does (see
+     *  updateFleetEncounters). A toast freezes sailing entirely (see the SAILING gate further
+     *  up), and a captain finishing a leg roughly every several real minutes would otherwise
+     *  repeatedly interrupt play just to report a routine trade - the whole point of delegating
+     *  is not having to watch it closely; the result is always visible next time the player
+     *  checks the Tavern screen. */
+    private fun updateFleet() {
+        FleetSimulation.update(
+            player = player,
+            currentGameMinutes = GameClock.totalGameMinutes,
+            distanceBetween = ::fleetSeaDistance
+        )
+    }
+
+    /** Whether a fleet captain runs into real trouble - NOT an abstract per-leg dice roll, an
+     *  actual proximity check against the same aiShips the player themselves can run into, using
+     *  the same [isHostile] (pirates by relative tier, faction military by reputation) - a
+     *  captain sailing through a quiet stretch of water is never at risk, and one sailing through
+     *  a pirate-heavy corridor actually is. [Captain.encounterCooldown] (real seconds, not scaled
+     *  by GameSpeed - it's a technical debounce, not world time) stops the same still-nearby ship
+     *  from re-rolling the escape check every single frame once evaded. Ports are a safe harbor,
+     *  same as for the player (see isNearAnyPort). Escape uses the captain's own ship speed vs
+     *  the threat's real speed, plus caution - see Captain.escapeChance. Failing to escape is a
+     *  total, permanent loss (see FleetSimulation.loseCaptain) - same as the player's own combat
+     *  losses, no rescue rollback. */
+    private fun updateFleetEncounters(delta: Float) {
+        for (captain in player.captains.filter { !it.isIdle }) {
+            if (captain.encounterCooldown > 0f) {
+                captain.encounterCooldown -= delta
+                continue
+            }
+            val ownedShip = player.ownedShips.find { it.id == captain.shipId } ?: continue
+            val pos = fleetShipTransform(captain)?.first ?: continue
+            if (isNearAnyPort(pos)) continue
+
+            val tier = shipTier(ownedShip.shipType)
+            val threat = aiShips.firstOrNull { isHostile(it, tier) && pos.dst(it.position) < AI_SHIP_ENGAGE_RADIUS }
+                ?: continue
+
+            if (MathUtils.random() < captain.escapeChance(ownedShip.shipType.speed, threat.speed)) {
+                captain.encounterCooldown = ENCOUNTER_COOLDOWN_SECONDS
+                val place = if (captain.headingToB) captain.portA else captain.portB
+                captain.lastReport = "${captain.name} evaded a ${threat.displayName} near $place."
+            } else {
+                eventToastUI.show(
+                    "Your captain ${captain.name} was caught by a ${threat.displayName} and lost - " +
+                        "along with their ship and everything aboard.",
+                    IconFactory.castaway
+                )
+                FleetSimulation.loseCaptain(player, captain)
+            }
+        }
+    }
+
     private fun checkAiEncounters() {
         // A wrecked ship (see ShipTypes.WRECK) can't fight - 0 damage would just be a stalemate
         // or a guaranteed loss - so nothing ever engages it; it only exists to limp to a port.
         if (player.ship == ShipTypes.WRECK) return
         if (isNearAnyPort(shipPosition)) return
+        val myTier = shipTier(player.ship)
         for (ship in aiShips) {
-            val engaging = isHostile(ship) || ship === huntedShip
+            val engaging = isHostile(ship, myTier) || ship === huntedShip
             if (!engaging) continue
             if (shipPosition.dst(ship.position) < AI_SHIP_ENGAGE_RADIUS) {
                 startAiCombat(ship)
@@ -1091,7 +1275,7 @@ class PortRoyaleGame : ApplicationAdapter() {
             spritePath = ship.spritePath
         )
         combatUI.open(CombatState(player, playerStats, enemyStats))
-        Gdx.input.inputProcessor = combatUI.stage
+        Gdx.input.inputProcessor = withToastInput(combatUI.stage)
     }
 
     private fun finishCombat(outcome: CombatOutcome) {
@@ -1282,6 +1466,129 @@ class PortRoyaleGame : ApplicationAdapter() {
         batch.color = Color.WHITE
     }
 
+    /** The water-adjacent point findPath should actually route to/from - a port's raw worldPos
+     *  can sit on or right against land, same reason the player's own autopilot targets
+     *  targetPort.approachPoint instead of the port marker itself (see handleInput()). Using
+     *  worldPos here was the earlier bug: findPath couldn't start from a point it doesn't
+     *  recognize as water, so it silently fell back to the straight-line-through-land path. */
+    private fun portApproachPos(name: String): Vector2? = resolvedPorts.firstOrNull { it.port.name == name }?.approachPoint
+
+    /** The real sailable route (A* around islands, same pathfinder as the player's own autopilot)
+     *  between two ports by name - the single source of truth both [fleetPath]'s render cache and
+     *  [fleetSeaDistance]'s timing calculation build on, so a fleet ship's on-screen speed and its
+     *  actual arrival time can never disagree about how far apart two ports really are. */
+    private fun pathBetweenPorts(from: String, to: String): List<Vector2> {
+        val originPos = portApproachPos(from) ?: return emptyList()
+        val destPos = portApproachPos(to) ?: return emptyList()
+        return worldMap.findPath(originPos, destPos)?.takeIf { it.isNotEmpty() } ?: listOf(originPos, destPos)
+    }
+
+    private fun pathLength(path: List<Vector2>): Float {
+        var total = 0f
+        for (i in 0 until path.size - 1) total += path[i].dst(path[i + 1])
+        return total
+    }
+
+    /** Real sea-route distance (world units) between two ports, for FleetSimulation.departFor to
+     *  turn into a leg duration via the ship's own speed - see updateFleet/TavernUI wiring. */
+    private fun fleetSeaDistance(from: String, to: String): Float = pathLength(pathBetweenPorts(from, to))
+
+    /** Caches the actual sailable route for a captain's CURRENT leg, so a fleet ship follows the
+     *  coastline instead of cutting straight across land - recomputed only when the leg's origin/
+     *  destination changes (a leg completing and flipping direction, or a redirected route), not
+     *  every frame. */
+    private class FleetPathEntry(val origin: String, val dest: String, val path: List<Vector2>)
+    private val fleetPaths = mutableMapOf<Captain, FleetPathEntry>()
+
+    private fun fleetPath(captain: Captain): List<Vector2> {
+        val origin = if (captain.headingToB) captain.portA else captain.portB
+        val dest = if (captain.headingToB) captain.portB else captain.portA
+        val existing = fleetPaths[captain]
+        if (existing != null && existing.origin == origin && existing.dest == dest) return existing.path
+
+        val computed = pathBetweenPorts(origin, dest)
+        fleetPaths[captain] = FleetPathEntry(origin, dest, computed)
+        return computed
+    }
+
+    /** A point [fraction] (0..1) of the way along a polyline's total length - constant speed
+     *  along the whole path, not just "halfway through whichever segment index that'd naively
+     *  land on". */
+    private fun pointAlongPath(path: List<Vector2>, fraction: Float): Vector2 {
+        if (path.isEmpty()) return Vector2()
+        if (path.size == 1) return path[0].cpy()
+        val segLengths = FloatArray(path.size - 1)
+        var total = 0f
+        for (i in 0 until path.size - 1) {
+            val d = path[i].dst(path[i + 1])
+            segLengths[i] = d
+            total += d
+        }
+        if (total <= 0f) return path[0].cpy()
+        var target = total * fraction.coerceIn(0f, 1f)
+        for (i in segLengths.indices) {
+            if (target <= segLengths[i] || i == segLengths.lastIndex) {
+                val segFraction = if (segLengths[i] > 0f) (target / segLengths[i]).coerceIn(0f, 1f) else 0f
+                val a = path[i]
+                val b = path[i + 1]
+                return Vector2(a.x + (b.x - a.x) * segFraction, a.y + (b.y - a.y) * segFraction)
+            }
+            target -= segLengths[i]
+        }
+        return path.last().cpy()
+    }
+
+    /** A fleet captain has no real simulated position (see Captain's class doc) - this derives
+     *  one purely for rendering/click-detection, from [fleetPath] and [Captain.legProgress], plus
+     *  a heading sampled a little further along the same path so the ship visually turns to
+     *  follow the coastline instead of always facing straight at the final destination port. */
+    private fun fleetShipTransform(captain: Captain): Pair<Vector2, Float>? {
+        val path = fleetPath(captain)
+        if (path.size < 2) return null
+        val progress = captain.legProgress(GameClock.totalGameMinutes)
+        val pos = pointAlongPath(path, progress)
+        val ahead = pointAlongPath(path, (progress + 0.02f).coerceAtMost(1f))
+        val heading = if (ahead.dst(pos) > 0.01f) {
+            MathUtils.atan2(ahead.y - pos.y, ahead.x - pos.x) * MathUtils.radDeg
+        } else {
+            0f
+        }
+        return pos to heading
+    }
+
+    /** Every active captain's ship, drawn along its actual sailable route (see
+     *  [fleetShipTransform]) with a small portrait badge so it reads as crewed-by-someone rather
+     *  than just another AI ship. */
+    private fun drawFleetShips() {
+        for (captain in player.captains) {
+            if (captain.isIdle) continue
+            val ownedShip = player.ownedShips.find { it.id == captain.shipId } ?: continue
+            val (pos, heading) = fleetShipTransform(captain) ?: continue
+
+            val texture = shipTextures.getValue(ownedShip.shipType.spritePath)
+            val width = BASE_SHIP_SPRITE_WIDTH * ownedShip.shipType.spriteScale * FLEET_SHIP_SPRITE_SCALE
+            val height = width * (texture.height.toFloat() / texture.width.toFloat())
+
+            batch.draw(
+                texture,
+                pos.x - width / 2f, pos.y - height / 2f,
+                width / 2f, height / 2f,
+                width, height,
+                1f, 1f,
+                heading - 90f,
+                0, 0, texture.width, texture.height,
+                false, false
+            )
+
+            val badgeSize = FLEET_SHIP_CLICK_RADIUS
+            batch.draw(
+                IconFactory.portraitFor(captain.name.hashCode()),
+                pos.x + width * 0.2f, pos.y + height * 0.2f,
+                badgeSize, badgeSize
+            )
+        }
+    }
+
     private fun drawAiShips() {
         for (ship in aiShips) {
             val texture = shipTextures.getValue(ship.spritePath)
@@ -1370,6 +1677,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         shipStatusUI.dispose()
         fortressUI.dispose()
         warehouseUI.dispose()
+        tavernUI.dispose()
+        fleetDockUI.dispose()
         combatUI.dispose()
         mainMenuUI.dispose()
         newGameUI.dispose()
@@ -1379,6 +1688,7 @@ class PortRoyaleGame : ApplicationAdapter() {
         eventToastUI.dispose()
         hudOverlayUI.dispose()
         propertyUI.dispose()
+        captainStatusUI.dispose()
         AudioManager.dispose()
         IconFactory.dispose()
         UiSkinFactory.disposeSharedFont()

@@ -58,16 +58,19 @@ object MarketState {
         }
     }
 
+    /** Whether a good is notably cheap (true), notably expensive (false), or neither (null) at
+     *  this port right now - the single-good version of [notableGoods], without its display
+     *  cap, for screens (e.g. the market) that list every good and don't need decluttering. */
+    fun notability(port: String, good: Good): Boolean? = when {
+        combinedMultiplier(port, good) <= 1f - NOTABLE_THRESHOLD -> true
+        combinedMultiplier(port, good) >= 1f + NOTABLE_THRESHOLD -> false
+        else -> null
+    }
+
     /** Goods notably cheap (true = surplus) or notably expensive (false = shortage) at this
      *  port right now, capped so the map doesn't get cluttered with every good at once. */
     fun notableGoods(port: String): List<Pair<Good, Boolean>> =
-        Good.entries.mapNotNull { good ->
-            when {
-                combinedMultiplier(port, good) <= 1f - NOTABLE_THRESHOLD -> good to true
-                combinedMultiplier(port, good) >= 1f + NOTABLE_THRESHOLD -> good to false
-                else -> null
-            }
-        }.take(MAX_NOTABLE_GOODS)
+        Good.entries.mapNotNull { good -> notability(port, good)?.let { good to it } }.take(MAX_NOTABLE_GOODS)
 
     fun reset() {
         stock.clear()

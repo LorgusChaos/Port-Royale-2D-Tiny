@@ -9,6 +9,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.Image
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
+import com.badlogic.gdx.scenes.scene2d.ui.TextField
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.utils.Align
@@ -20,9 +21,11 @@ import com.portroyale.tiny.ships.ShipTypes
 
 /** Ship-buying sub-screen: one row of cards (thumbnail, name, price/stats, Buy), reached from
  *  ShipStatusUI rather than the other way around - status/maintenance is the primary shipyard
- *  screen now, this is where you go specifically to replace your ship. "Back" returns to Ship
- *  Status, not the hub. A single wide row (rather than stacking rows) keeps total height low
- *  enough to fit without scrolling even with five-plus ship classes. */
+ *  screen now, this is where you go specifically to buy an additional hull. "Back" returns to
+ *  Ship Status, not the hub. A single wide row (rather than stacking rows) keeps total height low
+ *  enough to fit without scrolling even with five-plus ship classes. Buying doesn't replace the
+ *  ship the player is currently sailing - it adds a new one to the fleet (see Player.ownedShips,
+ *  FleetDockUI) and boards it, prompting for a name first. */
 class ShipyardUI(
     private val player: Player,
     private val onBack: () -> Unit
@@ -35,6 +38,12 @@ class ShipyardUI(
     private val shipTextures = mutableMapOf<String, Texture>()
     private lateinit var goldLabel: Label
     private val shipStatusLabels = mutableMapOf<ShipType, Label>()
+    private lateinit var shipGrid: Table
+    private lateinit var namingOverlay: Table
+    private lateinit var namingPrompt: Label
+    private lateinit var nameField: TextField
+    private var currentPort = ""
+    private var pendingShipType: ShipType? = null
 
     init {
         root.setFillParent(true)
@@ -43,7 +52,9 @@ class ShipyardUI(
         buildLayout()
     }
 
-    fun open() {
+    fun open(portName: String) {
+        currentPort = portName
+        pendingShipType = null
         refresh()
     }
 
@@ -77,11 +88,39 @@ class ShipyardUI(
         goldLabel = Label("", skin)
         panel.add(goldLabel).left().padBottom(20f).row()
 
-        val shipGrid = Table()
+        shipGrid = Table()
         for (shipType in ShipTypes.ALL) {
             shipGrid.add(buildShipCard(shipType)).top().pad(6f)
         }
         panel.add(shipGrid).padBottom(12f).row()
+
+        namingOverlay = Table()
+        namingPrompt = Label("", skin)
+        namingOverlay.add(namingPrompt).colspan(2).padBottom(10f).row()
+        nameField = TextField("", skin)
+        nameField.maxLength = 24
+        namingOverlay.add(nameField).colspan(2).width(260f).padBottom(14f).row()
+        val confirmButton = TextButton("Confirm", skin)
+        confirmButton.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                val shipType = pendingShipType ?: return
+                AudioManager.playCoins()
+                player.buyShip(shipType, nameField.text, currentPort)
+                pendingShipType = null
+                refresh()
+            }
+        })
+        namingOverlay.add(confirmButton).width(120f).pad(4f)
+        val cancelButton = TextButton("Cancel", skin)
+        cancelButton.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                AudioManager.playClick()
+                pendingShipType = null
+                refresh()
+            }
+        })
+        namingOverlay.add(cancelButton).width(120f).pad(4f).row()
+        panel.add(namingOverlay).padBottom(12f).row()
 
         val backButton = TextButton("Back", skin)
         backButton.addListener(object : ClickListener() {
@@ -117,9 +156,11 @@ class ShipyardUI(
         buyButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
                 if (player.canBuyShip(shipType)) {
-                    player.buyShip(shipType)
-                    AudioManager.playCoins()
+                    val owned = player.ownedShips.count { it.shipType == shipType }
+                    pendingShipType = shipType
+                    nameField.text = if (owned == 0) shipType.name else "${shipType.name} ${owned + 1}"
                     refresh()
+                    stage.keyboardFocus = nameField
                 }
             }
         })
@@ -130,10 +171,15 @@ class ShipyardUI(
 
     private fun refresh() {
         goldLabel.setText("Gold: ${player.gold}")
+        val naming = pendingShipType != null
+        shipGrid.isVisible = !naming
+        namingOverlay.isVisible = naming
+        val pending = pendingShipType
+        if (pending != null) namingPrompt.setText("Name your new ${pending.name}:")
         for ((shipType, label) in shipStatusLabels) {
             label.setText(
                 if (shipType == player.ship) {
-                    "owned\ncargo ${shipType.cargoCapacity}, hull ${shipType.maxHull}"
+                    "sailing now\ncargo ${shipType.cargoCapacity}, hull ${shipType.maxHull}"
                 } else {
                     "${shipType.price}g\ncargo ${shipType.cargoCapacity}, hull ${shipType.maxHull}"
                 }

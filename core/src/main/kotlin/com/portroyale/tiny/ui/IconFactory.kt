@@ -36,10 +36,19 @@ object IconFactory {
     val warehouse: Texture by lazy { buildArtIcon("sprites/icons/warehouse.png") }
     val property: Texture by lazy { buildPropertyIcon() }
     val debt: Texture by lazy { buildDebtIcon() }
+    /** The game-speed HUD control (see HudOverlayUI.setGameSpeed/GameSpeed) - a plain clock face,
+     *  no motion cues drawn in since the speed VALUE is shown as a label next to it. */
+    val clock: Texture by lazy { buildClockIcon() }
 
     private val goodIcons = mutableMapOf<Good, Texture>()
+    private val captainPortraits = mutableMapOf<Int, Texture>()
 
     fun iconFor(good: Good): Texture = goodIcons.getOrPut(good) { buildGoodIcon(good) }
+
+    /** A simple procedural bust portrait for a hired-captain candidate (see TavernUI) - [seed]
+     *  (e.g. the candidate's own name.hashCode()) deterministically picks skin/hair/coat color so
+     *  the same captain always shows the same face, without needing commissioned portrait art. */
+    fun portraitFor(seed: Int): Texture = captainPortraits.getOrPut(seed) { buildCaptainPortrait(seed) }
 
     fun dispose() {
         market.dispose()
@@ -57,6 +66,7 @@ object IconFactory {
         property.dispose()
         debt.dispose()
         goodIcons.values.forEach { it.dispose() }
+        captainPortraits.values.forEach { it.dispose() }
     }
 
     private fun blank(): Pixmap {
@@ -241,6 +251,20 @@ object IconFactory {
         return finish(pm)
     }
 
+    private fun buildClockIcon(): Texture {
+        val pm = blank()
+        pm.setColor(Color.valueOf("6E4A2E"))
+        pm.fillCircle(32, 32, 24)
+        pm.setColor(Color.valueOf("D9CBA8"))
+        pm.fillCircle(32, 32, 19)
+        pm.setColor(Color.valueOf("2E2A24"))
+        pm.fillRectangle(31, 16, 2, 17)
+        pm.fillRectangle(32, 31, 12, 2)
+        pm.setColor(Color.valueOf("D9A24A"))
+        pm.fillCircle(32, 32, 3)
+        return finish(pm)
+    }
+
     private fun buildGoodIcon(good: Good): Texture {
         val pm = blank()
         when (good) {
@@ -323,6 +347,36 @@ object IconFactory {
                 pm.fillRectangle(18, 28, 28, 5)
             }
         }
+        return finish(pm)
+    }
+
+    private val PORTRAIT_SKIN_TONES = listOf("E8B48C", "C68642", "8D5524", "FFDBAC", "A9702E")
+    private val PORTRAIT_HAIR_COLORS = listOf("2B1B0E", "5C4033", "1A1A1A", "B8860B", "D3D3D3", "7B3F00")
+    private val PORTRAIT_COAT_COLORS = listOf("2E4E6E", "6E2E2E", "2E6E4A", "5A3E7A", "6E5A2E", "2E2E6E")
+
+    /** A small bust: hair drawn as a wider circle behind/above a smaller, lower face circle so it
+     *  only peeks out around the top and sides, plus a coat-colored shoulder block - randomized
+     *  by [seed] from a few hand-picked palettes so candidates read as visually distinct people. */
+    private fun buildCaptainPortrait(seed: Int): Texture {
+        val rng = kotlin.random.Random(seed)
+        val pm = blank()
+        val skin = Color.valueOf(PORTRAIT_SKIN_TONES[rng.nextInt(PORTRAIT_SKIN_TONES.size)])
+        val hair = Color.valueOf(PORTRAIT_HAIR_COLORS[rng.nextInt(PORTRAIT_HAIR_COLORS.size)])
+        val coat = Color.valueOf(PORTRAIT_COAT_COLORS[rng.nextInt(PORTRAIT_COAT_COLORS.size)])
+
+        pm.setColor(coat)
+        pm.fillRectangle(8, 48, 48, 16)
+
+        pm.setColor(hair)
+        pm.fillCircle(32, 29, 17)
+
+        pm.setColor(skin)
+        pm.fillCircle(32, 33, 14)
+
+        pm.setColor(Color.valueOf("1A120A"))
+        pm.fillCircle(27, 33, 1)
+        pm.fillCircle(37, 33, 1)
+
         return finish(pm)
     }
 }

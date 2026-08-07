@@ -21,6 +21,14 @@ class Player(var gold: Int = 10000) {
 
     val condition = ShipCondition(ship.maxHull)
 
+    /** Every hull the player owns, including the one currently being sailed (see [activeShipId]
+     *  and OwnedShip) - a fleet roster, distinct from [ship] which stays a plain ShipType/
+     *  ShipCondition pair so the many existing call sites reading player.ship didn't need to
+     *  change when fleet ownership was added. */
+    val ownedShips = mutableListOf(OwnedShip(1, "Sloop", ShipTypes.SLOOP, ""))
+    var activeShipId: Int = 1
+        private set
+
     val cargo = linkedMapOf<Good, Int>().apply {
         Good.entries.forEach { put(it, 0) }
     }
@@ -35,6 +43,10 @@ class Player(var gold: Int = 10000) {
 
     /** At most one outstanding loan at a time - see economy/Loan.kt and FortressUI. */
     var loan: Loan? = null
+
+    /** Hired captains running their own A<->B trade routes - see economy/Captain.kt,
+     *  FleetSimulation, and TavernUI. */
+    val captains = mutableListOf<Captain>()
 
     val cargoCapacity: Int get() = ship.cargoCapacity
     val cargoUsed: Int get() = cargo.values.sum()
@@ -60,19 +72,52 @@ class Player(var gold: Int = 10000) {
         cargo[good] = (cargo[good] ?: 0) - 1
     }
 
-    fun canBuyShip(shipType: ShipType): Boolean = shipType != ship && gold >= shipType.price
+    fun canBuyShip(shipType: ShipType): Boolean = gold >= shipType.price
 
-    fun buyShip(shipType: ShipType) {
+    private fun nextShipId(): Int = (ownedShips.maxOfOrNull { it.id } ?: 0) + 1
+
+    /** Buys a new hull and boards it immediately - the ship being left behind is NOT discarded,
+     *  it docks here instead (see FleetDockUI for renaming/re-crewing it later). */
+    fun buyShip(shipType: ShipType, name: String, currentPort: String) {
         gold -= shipType.price
+        ownedShips.find { it.id == activeShipId }?.dockedAt = currentPort
+        val newShip = OwnedShip(nextShipId(), name.ifBlank { shipType.name }, shipType, currentPort)
+        ownedShips.add(newShip)
+        activeShipId = newShip.id
         ship = shipType
         condition.resetFor(shipType.maxHull)
     }
 
-    /** Wrecks the player's ship after a lost battle - no purchase, no choice, just gone. See
-     *  ShipTypes.WRECK and PortRoyaleGame.finishCombat's DEFEAT handling. */
+    /** Swaps which owned ship the player is actively sailing - only valid for a ship idle and
+     *  docked at [currentPort] (see FleetDockUI). The ship being left behind docks here in turn. */
+    fun canBoardShip(shipId: Int, currentPort: String): Boolean {
+        if (shipId == activeShipId) return false
+        val target = ownedShips.find { it.id == shipId } ?: return false
+        return target.dockedAt == currentPort
+    }
+    fun boardShip(shipId: Int, currentPort: String) {
+        val target = ownedShips.find { it.id == shipId } ?: return
+        ownedShips.find { it.id == activeShipId }?.dockedAt = currentPort
+        activeShipId = target.id
+        ship = target.shipType
+        condition.resetFor(target.shipType.maxHull)
+    }
+
+    fun canRenameShip(shipId: Int): Boolean = ownedShips.any { it.id == shipId }
+    fun renameShip(shipId: Int, name: String) {
+        if (name.isBlank()) return
+        ownedShips.find { it.id == shipId }?.name = name
+    }
+
+    /** Wrecks the player's ship after a lost battle - no purchase, no choice, just gone (removed
+     *  from the fleet outright, not merely damaged). Any OTHER owned ships sitting in other ports
+     *  are untouched - the player just has to reach one, or buy a new one. See ShipTypes.WRECK and
+     *  PortRoyaleGame.finishCombat's DEFEAT handling. */
     fun wreckShip() {
         gold = 0
         Good.entries.forEach { cargo[it] = 0 }
+        ownedShips.removeAll { it.id == activeShipId }
+        activeShipId = -1
         ship = ShipTypes.WRECK
         condition.resetFor(ship.maxHull)
     }
@@ -195,6 +240,10 @@ class Player(var gold: Int = 10000) {
         Faction.entries.forEach { reputation[it] = 0 }
         warehouses.clear()
         loan = null
+        captains.clear()
+        ownedShips.clear()
+        ownedShips.add(OwnedShip(1, "Sloop", ShipTypes.SLOOP, ""))
+        activeShipId = 1
     }
 
     /** Overwrites state from a loaded save, bypassing the buy/sell gold accounting. Ship
@@ -207,5 +256,19 @@ class Player(var gold: Int = 10000) {
         condition.resetFor(ship.maxHull)
         Good.entries.forEach { this.cargo[it] = cargo[it] ?: 0 }
         Faction.entries.forEach { reputation[it] = 0 }
+    }
+
+    /** Restores the fleet roster from a save - see SaveManager.resolveOwnedShips. Falls back to
+     *  a single Sloop matching [ship] if the save predates fleet ownership (or somehow ends up
+     *  with no ship at all), so an old save can't leave the player with no hull to stand on. */
+    fun loadFleet(ownedShips: List<OwnedShip>, activeShipId: Int) {
+        this.ownedShips.clear()
+        if (ownedShips.isEmpty()) {
+            this.ownedShips.add(OwnedShip(1, ship.name, ship, ""))
+            this.activeShipId = 1
+        } else {
+            this.ownedShips.addAll(ownedShips)
+            this.activeShipId = activeShipId
+        }
     }
 }

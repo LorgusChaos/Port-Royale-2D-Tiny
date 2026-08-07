@@ -3,15 +3,16 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5 - early prototype.** Sailing, trading with a living dynamic market, random sea
-> events, ship upgrades, combat, historical factions with reputation, a living map of AI ships,
-> warehouses/property, loans, autosave, audio, and a full main menu with save/load are all
-> playable in a rough form; art and content breadth are still early. See [Roadmap](#roadmap).
+> **Status: v0.4.5.2 - early prototype.** Sailing, trading with a living dynamic market, random
+> sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
+> ships, a small hired fleet of your own captains, warehouses/property, loans, autosave, audio,
+> and a full main menu with save/load are all playable in a rough form; art and content breadth
+> are still early. See [Roadmap](#roadmap).
 
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5
+## What's here in v0.4.5.2
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -39,16 +40,27 @@ franchise's creators or publishers.
     minimap while a loan is outstanding);
   - a **warehouse** - buy one, expand it as an upgrade, and store goods and gold there via a
     Market-like transfer screen;
-  - a **Tavern** - present in the menu, not yet functional.
+  - a **Tavern** - hire a captain (a choice of three, each with a name, portrait, and stats) to
+    run an independent trade route for you, or re-crew one who's already on the payroll but
+    between ships.
   A **Property** menu (icon under the minimap) lists everything stored across every city with
-  anything in it.
+  anything in it, and a **Docks** screen (via the Shipyard) lists every ship you own that's
+  currently in port, lets you rename them, and swap which one you're personally sailing.
+- A small fleet beyond your own ship: buy additional hulls (named at purchase) and crew them
+  with hired captains from the Tavern or Docks. A captain decides what to buy and sell on their
+  own - never at a loss - the player only sets which two ports they run between. Their ship
+  sails the same real, coastline-hugging routes as the player's own, visible on the map and
+  clickable for a status popup (cargo, route, lifetime profit, redirect, recall); a HUD icon
+  jumps the camera straight to any of them. They face the same dangers the player does - pirates
+  and hostile factions, by the same rules - and a loss is permanent.
 - A living map: trade and military ships patrol between their faction's own ports; pirates wander
-  between any port at a random tier (1-5, hull size and reward scaled to match) and flee rather
-  than engage a ship clearly stronger than them, and vice versa. Pirates and hostile-reputation
-  military ships engage on approach; peaceful ships can be deliberately hunted down for loot.
-  Ports are a safe harbor - no encounter ever triggers near one. Ships visibly dock - they
-  disappear into a port on arrival (a slow purple glow marks where) and reappear only once you
-  set off again.
+  between any port at a random tier (1-5, hull size/speed and reward scaled to match) and flee
+  rather than engage a ship clearly stronger than them, and vice versa - every AI ship's sailing
+  speed comes from the same ship-type table the player and hired captains use, not a separate
+  hand-picked number. Pirates and hostile-reputation military ships engage on approach; peaceful
+  ships can be deliberately hunted down for loot. Ports are a safe harbor - no encounter ever
+  triggers near one. Ships visibly dock - they disappear into a port on arrival (a slow purple
+  glow marks where) and reappear only once you set off again.
 - Random sea events: 30 invisible, one-time locations scattered across the water (respawning
   elsewhere after a delay once triggered) for classic encounters - a flavor-text bottle, a gold
   or goods chest, or a castaway who pays for a lift to a random port. Shown in a dismissible,
@@ -58,8 +70,11 @@ franchise's creators or publishers.
   notification (same style as sea events); defeat strips the player's cargo and gold and leaves
   them with a "Wreck" - the smallest, unarmed, slowest hull in the game, just enough to reach a
   port and immune to further NPC attacks - instead of a dead end.
-- An in-game clock, running 10x faster than real time, denominating loan terms (see Commandant's
-  Office above).
+- An in-game clock, shown as a calendar date in the HUD alongside your gold balance, running 10x
+  faster than real time by default - denominates loan terms and fleet voyage times. A HUD control
+  (clock icon) cycles a 1x-20x speed multiplier over the whole simulated world (ship movement,
+  the clock, market drift, hull fouling, sea events) independent of the UI itself, for skipping
+  past the boring stretches of a voyage.
 - Music and sound: a rotating sailing playlist, a combat track, a port-arrival cue, and SFX for
   cannon fire/hits/coins/clicks/menu transitions - all controllable from Settings (volume slider
   + mute).
@@ -174,21 +189,22 @@ faction systems below, and a project-scope/hardware-requirements estimate). Orde
 rule: cheapest first for quick wins, riskiest next while the codebase is still small.
 
 - [ ] **M9** - flesh out the city hub's remaining sub-screens beyond their current stub/
-      placeholder state (deeper Shipyard functionality, etc.) - Tavern specifically stays a
-      stub until M10a, where it actually comes online
-- [ ] **M9b** - warehouse speculation UX: a first-purchase tooltip explaining that supply/
+      placeholder state (deeper Shipyard functionality, etc.)
+- [x] **M9b** - warehouse speculation UX: a first-purchase tooltip explaining that supply/
       prices drift back over time, plus a "price above/below normal" indicator in the market
       screen reusing the map's existing surplus/shortage icon language - the underlying
-      mechanic already exists (v0.4.1's living market), this just makes it legible
-- [ ] **M10a** - Fleet MVP: hire a captain at the Tavern (fixed cost, scaling up per
-      additional captain), assign a second ship a fixed port-to-port-to-good trade route,
-      simulated once per in-game day, results reported through the existing toast
-      notification; losses are real (no bailout) - the riskiest new architecture in the
-      project, deliberately built while the codebase is still small
-- [ ] **M10b** - unified threat model: extends the existing tier-based fight-or-flee with
-      reputation as a second factor (how *persistently* a hostile ship pursues, not just
-      whether it attacks) - the same module drives both the player's own encounters and
-      captains' auto-resolved ones from M10a
+      mechanic already exists (v0.4.1's living market), this just makes it legible *(this
+      release)*
+- [x] **M10a** - Fleet: hire a captain at the Tavern (a choice of three, or re-crew an idle
+      one for free), assign an owned ship a port-to-port route - the captain decides what to
+      trade and never sells at a loss; a Docks screen manages the fleet roster, ships render
+      and move on the map for real, and losses are real (no bailout) *(this release, and then
+      some - grew well past the original MVP scope during implementation)*
+- [ ] **M10b** - unified threat model, remaining piece: reputation already gates *whether* a
+      faction's military is hostile at all, and the same hostility check now drives both the
+      player's own encounters and a fleet captain's (done as part of M10a) - what's left is
+      *persistence*, how doggedly a hostile ship keeps pursuing after a failed attempt, rather
+      than every encounter being a fresh, memory-less check
 - [ ] **M10c** - crew/boarding combat rework: headcount, losses during a fight, boarding,
       alternative ammunition types - *priority under review*; combat is meant to stay a
       support system rather than a deep one of its own, so this waits until M10a/M10b show
@@ -203,8 +219,6 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       "danger score", to stay consistent with not handing the player a full picture upfront
 - [ ] **M12** - expand the Commandant's Office beyond reputation + loans, including tying
       loans to fleet expansion (borrowing specifically to afford a second ship/captain sooner)
-- [ ] **M13** - once every city-menu sub-screen is built out, restyle their UI to match the port
-      hub's art (see M8c)
 - [ ] **M14** - faction conflict: trading a rival faction's goods (bought from them) with
       their competitor costs reputation with the original faction, cumulatively - gives the
       "Influence" status ceiling a real trade-off (3 of 4 factions at max reputation, not 4 of 4)
@@ -213,6 +227,12 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       M14 so the new ports don't need the faction-conflict balance recalibrated twice
 - [ ] **M15** - economy balance pass, now with real thresholds to calibrate against (status
       ceilings, captain hiring costs, the M14 reputation penalty) instead of placeholders
+- [ ] **M16** - full UI/UX polish pass: every remaining menu, icon, and interactive element
+      (main menu, settings, save/load, combat screen, HUD/minimap chrome, Property, and every
+      city-hub sub-screen) restyled to the same standard as the port hub redesign (M8c) -
+      deliberately last, once mechanics are settled and every button/icon a mechanic needs
+      already exists, so nothing gets restyled twice (replaces the earlier, narrower M13, which
+      only covered the city-hub sub-screens)
 
 ## Credits
 

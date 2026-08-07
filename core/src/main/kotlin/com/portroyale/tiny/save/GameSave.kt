@@ -5,9 +5,12 @@ import com.badlogic.gdx.files.FileHandle
 import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.utils.Json
 import com.badlogic.gdx.utils.JsonWriter
+import com.portroyale.tiny.economy.Captain
+import com.portroyale.tiny.economy.DEFAULT_LEG_MINUTES
 import com.portroyale.tiny.economy.Good
 import com.portroyale.tiny.economy.Loan
 import com.portroyale.tiny.economy.MarketState
+import com.portroyale.tiny.economy.OwnedShip
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.economy.Warehouse
 import com.portroyale.tiny.factions.Faction
@@ -48,6 +51,39 @@ class GameSaveData {
     var loanDeadlineGameMinutes: Float = 0f
     var loanFactionName: String = ""
     var loanOverdue: Boolean = false
+    var captains: MutableList<CaptainSaveEntry> = mutableListOf()
+    var ownedShips: MutableList<OwnedShipSaveEntry> = mutableListOf()
+    var activeShipId: Int = 1
+}
+
+/** Plain no-arg-constructor POJO for one Captain - see GameSaveData.captains. A nested list of
+ *  these (rather than parallel port/tier maps like warehouses use) since a captain is several
+ *  fields that only make sense together, not one value per key. [shipId] uses -1 as "idle, no
+ *  ship" rather than a nullable Int, to keep this a plain-primitive POJO for the reflection-based
+ *  Json (de)serializer - same reasoning for [cargoGoodName] using "" for "empty hold". */
+class CaptainSaveEntry {
+    var name: String = ""
+    var tradeSense: Float = 0f
+    var caution: Float = 0f
+    var shipId: Int = -1
+    var portA: String = ""
+    var portB: String = ""
+    var cargoGoodName: String = ""
+    var headingToB: Boolean = true
+    var cargoUnits: Int = 0
+    var cargoCostTotal: Int = 0
+    var arrivesAtGameMinutes: Float = 0f
+    var legDurationGameMinutes: Float = DEFAULT_LEG_MINUTES
+    var lastReport: String = ""
+    var totalProfit: Int = 0
+}
+
+/** Plain no-arg-constructor POJO for one OwnedShip - see GameSaveData.ownedShips. */
+class OwnedShipSaveEntry {
+    var id: Int = 0
+    var name: String = ""
+    var shipTypeName: String = "Sloop"
+    var dockedAt: String = ""
 }
 
 /** One save's identity for list screens - name plus when it was written, so the player can tell
@@ -108,6 +144,35 @@ object SaveManager {
             data.loanOverdue = loan.overdue
         }
 
+        for (captain in player.captains) {
+            val entry = CaptainSaveEntry()
+            entry.name = captain.name
+            entry.tradeSense = captain.tradeSense
+            entry.caution = captain.caution
+            entry.shipId = captain.shipId ?: -1
+            entry.portA = captain.portA
+            entry.portB = captain.portB
+            entry.cargoGoodName = captain.cargoGood?.name ?: ""
+            entry.headingToB = captain.headingToB
+            entry.cargoUnits = captain.cargoUnits
+            entry.cargoCostTotal = captain.cargoCostTotal
+            entry.arrivesAtGameMinutes = captain.arrivesAtGameMinutes
+            entry.legDurationGameMinutes = captain.legDurationGameMinutes
+            entry.lastReport = captain.lastReport
+            entry.totalProfit = captain.totalProfit
+            data.captains.add(entry)
+        }
+
+        for (ownedShip in player.ownedShips) {
+            val entry = OwnedShipSaveEntry()
+            entry.id = ownedShip.id
+            entry.name = ownedShip.name
+            entry.shipTypeName = ownedShip.shipType.name
+            entry.dockedAt = ownedShip.dockedAt
+            data.ownedShips.add(entry)
+        }
+        data.activeShipId = player.activeShipId
+
         val json = Json()
         json.setOutputType(JsonWriter.OutputType.json)
         dir().child("$name.json").writeString(json.prettyPrint(data), false)
@@ -160,4 +225,34 @@ object SaveManager {
             overdue = data.loanOverdue
         )
     }
+
+    fun resolveCaptains(data: GameSaveData): MutableList<Captain> =
+        data.captains.map { entry ->
+            Captain(
+                name = entry.name,
+                tradeSense = entry.tradeSense,
+                caution = entry.caution,
+                shipId = if (entry.shipId >= 0) entry.shipId else null,
+                portA = entry.portA,
+                portB = entry.portB,
+                headingToB = entry.headingToB,
+                cargoGood = Good.entries.find { it.name == entry.cargoGoodName },
+                cargoUnits = entry.cargoUnits,
+                cargoCostTotal = entry.cargoCostTotal,
+                arrivesAtGameMinutes = entry.arrivesAtGameMinutes,
+                legDurationGameMinutes = if (entry.legDurationGameMinutes > 0f) entry.legDurationGameMinutes else DEFAULT_LEG_MINUTES,
+                lastReport = entry.lastReport,
+                totalProfit = entry.totalProfit
+            )
+        }.toMutableList()
+
+    fun resolveOwnedShips(data: GameSaveData): MutableList<OwnedShip> =
+        data.ownedShips.map { entry ->
+            OwnedShip(
+                id = entry.id,
+                name = entry.name,
+                shipType = resolveShipType(entry.shipTypeName),
+                dockedAt = entry.dockedAt
+            )
+        }.toMutableList()
 }

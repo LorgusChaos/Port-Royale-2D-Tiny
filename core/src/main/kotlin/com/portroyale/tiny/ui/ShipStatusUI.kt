@@ -32,7 +32,8 @@ private val FOULING_FILL = Color.valueOf("4E6B3A")
 class ShipStatusUI(
     private val player: Player,
     private val onBack: () -> Unit,
-    private val onOpenShipyard: () -> Unit
+    private val onOpenShipyard: () -> Unit,
+    private val onOpenDocks: () -> Unit
 ) {
 
     val stage = Stage(UiScale.viewport())
@@ -157,7 +158,16 @@ class ShipStatusUI(
                 onOpenShipyard()
             }
         })
-        panel.add(buyShipButton).colspan(3).left().width(160f).padTop(20f).row()
+        panel.add(buyShipButton).width(160f).padTop(20f)
+
+        val docksButton = TextButton("Docks", skin)
+        docksButton.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                AudioManager.playClick()
+                onOpenDocks()
+            }
+        })
+        panel.add(docksButton).colspan(2).width(160f).padTop(20f).row()
 
         val backButton = TextButton("Back", skin)
         backButton.addListener(object : ClickListener() {
@@ -210,7 +220,8 @@ class ShipStatusUI(
 
     private fun refresh() {
         val c = player.condition
-        titleLabel.setText("${player.ship.name} - Status")
+        val activeName = player.ownedShips.firstOrNull { it.id == player.activeShipId }?.name ?: player.ship.name
+        titleLabel.setText("$activeName - Status")
         goldLabel.setText("Gold: ${player.gold}")
 
         cargoValue.setText("${player.cargoUsed} / ${player.cargoCapacity}")

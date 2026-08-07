@@ -20,8 +20,15 @@ private const val GOLD_MOVE_AMOUNT = 100
 /** Per-port private storage sub-screen: move goods and gold between the ship's hold and a
  *  warehouse the player owns in this specific port. Reached from PortHubUI; "Back" returns
  *  there. Before a warehouse exists here, this just shows a "Buy Warehouse" offer instead of the
- *  goods/gold rows. */
-class WarehouseUI(private val player: Player, private val onBack: () -> Unit) {
+ *  goods/gold rows. [onFirstWarehousePurchased] fires exactly once, the moment the player's very
+ *  first warehouse anywhere is bought - PortRoyaleGame uses it to pop the explanatory toast over
+ *  this screen (EventToastUI, not something built into this screen's own Stage/Table, so it can
+ *  render and stay dismissible on top regardless of which screen triggered it). */
+class WarehouseUI(
+    private val player: Player,
+    private val onBack: () -> Unit,
+    private val onFirstWarehousePurchased: () -> Unit = {}
+) {
 
     val stage = Stage(UiScale.viewport())
 
@@ -86,9 +93,11 @@ class WarehouseUI(private val player: Player, private val onBack: () -> Unit) {
         buyButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
                 if (player.canBuyWarehouse(currentPort)) {
+                    val isFirstEver = player.warehouses.isEmpty()
                     player.buyWarehouse(currentPort)
                     AudioManager.playCoins()
                     refresh()
+                    if (isFirstEver) onFirstWarehousePurchased()
                 }
             }
         })

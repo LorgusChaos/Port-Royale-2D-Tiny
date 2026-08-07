@@ -5,6 +5,7 @@ import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.scenes.scene2d.ui.Image
 import com.badlogic.gdx.scenes.scene2d.ui.Label
+import com.badlogic.gdx.scenes.scene2d.ui.Stack
 import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
@@ -39,8 +40,14 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
     private val buyPriceLabels = mutableMapOf<Good, Label>()
     private val sellPriceLabels = mutableMapOf<Good, Label>()
     private val holdLabels = mutableMapOf<Good, Label>()
+    private val notabilityFrames = mutableMapOf<Good, Image>()
     private var currentPort = ""
     private var portFaction: Faction? = null
+
+    // Same visual language as the map's surplus/shortage icons (see IconFactory) - built once
+    // and reused rather than re-wrapped every refresh().
+    private val surplusDrawable = TextureRegionDrawable(TextureRegion(IconFactory.surplusFrame))
+    private val shortageDrawable = TextureRegionDrawable(TextureRegion(IconFactory.shortageFrame))
 
     init {
         root.setFillParent(true)
@@ -109,7 +116,14 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
                 }
             })
 
+            // A surplus/shortage frame sits behind the icon (same visual language as the map),
+            // toggled per-refresh via notabilityFrames rather than swapping the icon Image itself.
             val icon = Image(TextureRegionDrawable(TextureRegion(IconFactory.iconFor(good))))
+            val frame = Image()
+            notabilityFrames[good] = frame
+            val iconInset = Table()
+            iconInset.add(icon).size(28f, 28f)
+            val iconStack = Stack(frame, iconInset)
 
             val sellPriceLabel = Label("", skin, "price")
             sellPriceLabel.setAlignment(Align.center)
@@ -134,7 +148,7 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
 
             panel.add(buyPriceLabel).width(64f).pad(4f)
             panel.add(buyButton).width(64f).pad(4f)
-            panel.add(icon).size(32f, 32f).pad(4f)
+            panel.add(iconStack).size(40f, 40f).pad(4f)
             panel.add(Label(good.displayName, skin)).left().width(90f).pad(4f)
             panel.add(sellPriceLabel).width(64f).pad(4f)
             panel.add(sellButton).width(64f).pad(4f)
@@ -189,6 +203,11 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
             sellPriceLabels.getValue(good).setText(sellPrice(good).toString())
             val held = player.cargo[good] ?: 0
             holdLabels.getValue(good).setText("×$held")
+            notabilityFrames.getValue(good).drawable = when (MarketState.notability(currentPort, good)) {
+                true -> surplusDrawable
+                false -> shortageDrawable
+                null -> null
+            }
         }
     }
 }

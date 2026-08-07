@@ -4,6 +4,7 @@ import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector2
 import com.portroyale.tiny.factions.Faction
+import com.portroyale.tiny.ships.ShipTypes
 
 enum class AiShipRole { TRADE, MILITARY, PIRATE }
 
@@ -47,7 +48,14 @@ class AiShip(
  *  Sprites come from the same 5-tier ship2_<color>_<tier> set as the player's own ships (see
  *  ShipTypes) - color carries faction identity here (no tint multiply on top, the color IS the
  *  sail), tier carries role weight (trade = a modest tier-2 hull, military = a bigger tier-4
- *  hull, pirates = whatever tier they rolled). */
+ *  hull, pirates = whatever tier they rolled). [speed] is pulled from that same tier's real
+ *  ShipTypes entry, not a separate hand-tuned number - a ship's hull type is what determines how
+ *  fast it sails regardless of who owns it (player, a hired captain, or an NPC faction), same
+ *  reasoning the player's own effectiveSpeed and FleetSimulation's leg timing both already use.
+ *  maxHull/damage/goldReward stay separately tuned per role on purpose (trade = deliberately
+ *  weak/easy prey, pirates = a strict tier difficulty ladder) - ShipTypes' own hull numbers
+ *  aren't a strict power ladder (a Cutter trades hull for speed), so reusing them there would
+ *  undermine the tier-vs-tier fight-or-flee comparison. */
 object AiShipFactory {
     private const val TRADE_TIER = 2
     private const val MILITARY_TIER = 4
@@ -76,7 +84,7 @@ object AiShipFactory {
         faction = faction,
         spritePath = TRADE_SPRITES.getValue(faction),
         tint = Color.WHITE,
-        speed = 22f,
+        speed = ShipTypes.ALL[TRADE_TIER - 1].speed,
         maxHull = 40,
         minDamage = 3,
         maxDamage = 8,
@@ -90,7 +98,7 @@ object AiShipFactory {
         faction = faction,
         spritePath = MILITARY_SPRITES.getValue(faction),
         tint = Color.WHITE,
-        speed = 30f,
+        speed = ShipTypes.ALL[MILITARY_TIER - 1].speed,
         maxHull = 160,
         minDamage = 18,
         maxDamage = 30,
@@ -106,7 +114,7 @@ object AiShipFactory {
             faction = null,
             spritePath = PIRATE_SPRITES.getValue(tier),
             tint = Color.WHITE,
-            speed = 44f - tier * 3f,
+            speed = ShipTypes.ALL[tier - 1].speed,
             maxHull = 25 + tier * 25,
             minDamage = 3 + tier * 4,
             maxDamage = 6 + tier * 7,

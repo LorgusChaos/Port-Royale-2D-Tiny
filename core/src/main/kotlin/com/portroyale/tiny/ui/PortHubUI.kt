@@ -54,6 +54,7 @@ class PortHubUI(
     private val onOpenShipyard: () -> Unit,
     private val onOpenFortress: () -> Unit,
     private val onOpenWarehouse: () -> Unit,
+    private val onOpenTavern: () -> Unit,
     private val onSetSail: () -> Unit
 ) {
     val stage = Stage(UiScale.viewport())
@@ -151,6 +152,7 @@ class PortHubUI(
         }
         addIconSlot(IconFactory.tavern, "Tavern", TAVERN_BOX) {
             AudioManager.playClick()
+            onOpenTavern()
         }
 
         frame.addActor(closeButtonHotzone())

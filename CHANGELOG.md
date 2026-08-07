@@ -1,5 +1,68 @@
 # Changelog
 
+## [0.4.5.2] - 2026-08-07
+
+### Added
+- Hired captains (M10a): the Tavern now actually works. Hiring offers a choice of three rolled
+  candidates (name, portrait, trade sense, and caution), or lets you re-crew an already-hired
+  captain who's currently idle for free; either way requires a free ship of your own docked at
+  the current port. The player only sets the ship and the two ports on the route - what to
+  actually carry is the captain's own call each leg: they buy whichever good looks most
+  profitable by today's prices at both ends (the same market/reputation pricing the player
+  themselves would get), and refuse to ever sell at a loss, holding cargo and trying the other
+  end of the route instead if the price isn't there yet.
+- Docks screen: lists every ship you own that's currently in port, lets you rename any of them,
+  and swap which one you're personally sailing (you count as a captain too) or hand one to a
+  hired captain.
+- Buying a new ship at the Shipyard now adds it to your fleet instead of replacing the one
+  you're sailing - you're prompted to name it at purchase.
+- Fleet ships appear on the sailing map as real moving icons, following the same sailable A*
+  route (around islands, hugging the coast) the player's own autopilot uses, at a leg duration
+  derived from real distance and that ship's own speed - not a placeholder timer. Clicking one
+  (or its quick-jump icon in the HUD - see below) opens a status popup: ship and cargo, route,
+  lifetime profit, and a way to redirect the destination (only while the captain is inbound to
+  home port, so a change can't retarget a leg already under way) or recall them.
+- A captain's danger is now a real thing happening in the world, not a hidden dice roll: their
+  ship can run into any of the same hostile AI ships the player can, using the same rules
+  (pirates by relative strength, faction military by reputation). Escape chance depends on the
+  captain's own ship speed against the threat's, plus their caution stat; failing to escape is
+  a full, permanent loss of the ship, captain, and cargo - same as the player's own combat
+  losses.
+- A game-speed control in the HUD (clock icon, top-left): cycles 1x/2x/5x/10x/20x, speeding up
+  or slowing down ship movement (the player's, the fleet's, and every AI ship's), the game
+  clock, hull fouling, market drift, and sea-event timers together. Camera controls, UI
+  animation, and the autosave interval deliberately stay real-time regardless of the setting.
+- The HUD also now shows the in-game calendar date and gold balance (top-left), and a small
+  portrait icon per active captain (top-right) that snaps the camera straight to that ship's
+  current position at a close zoom.
+- A warehouse's first-ever purchase shows a one-time popup tip explaining that supply/prices
+  drift back over time (M9b); the market screen now shows a small framed icon on any good
+  that's notably cheap or expensive at the current port, reusing the same surplus/shortage
+  language already used on the map.
+
+### Changed
+- Every ship in the game - the player's, a hired captain's, and every roaming AI trader/
+  warship/pirate - now draws its sailing speed from the same underlying ship-type table,
+  instead of AI ships using a separate, hand-picked number disconnected from ship type. All
+  base ship speeds were also reduced 10x, since honoring real distance made the old numbers
+  cross the map implausibly fast.
+
+### Fixed
+- Toast notifications (sea events, combat results, loan-overdue, the new warehouse tip) could
+  render underneath, and not receive clicks on, every port and combat sub-screen - they now
+  always draw on top and share input with whatever screen is open.
+- A fleet ship's rendered route could cut straight across land - pathfinding was using a port's
+  raw map marker position instead of the water-adjacent point next to it (the same fix the
+  player's own autopilot already relied on).
+- The HUD's captain quick-jump icons could silently drop a click - the icon row was being
+  rebuilt from scratch every single frame, which could tear down the exact button a click had
+  just started on before its release landed. Now only rebuilt when the active-captain list
+  actually changes.
+
+### Internal
+- Save games now carry the full fleet (every owned ship and hired captain, including a
+  captain's current cargo/route/lifetime profit) so it survives a save/load round-trip.
+
 ## [0.4.5.1] - 2026-08-06
 
 ### Internal
