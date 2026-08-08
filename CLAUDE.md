@@ -20,6 +20,21 @@ If a `NoClassDefFoundError` for a class that clearly exists shows up right after
 files, it's a stale Gradle daemon cache, not a real bug — `./gradlew.bat clean` before rebuilding
 fixes it. Don't waste time debugging the "missing" class itself.
 
+## Before starting a roadmap milestone
+
+Never start coding an M-numbered milestone from design prose alone — first produce the decision
+sheet ("лист решений"): one page, six sections (правила / числа / краевые случаи / место в UI /
+не делать в этой вехе / готово когда), numbered sequentially, every item a *decided proposal*
+with its rejected alternative and a `[форма]`/`[константа]` tag by cost of being wrong.
+Proposals, never questions; one message, then wait for a single reply with the user's edits.
+Full format and procedure: the `veha` skill (`.claude/skills/veha/SKILL.md`), also runnable as
+`/veha <milestone>`. Applies whenever the user says they're starting a milestone, even if they
+don't invoke the skill by name.
+
+Rationale: a paragraph of design prose hides ~7 undecided details. The ones about the *shape* of
+a rule cost a rewrite when guessed wrong; the ones about numbers cost one line at M15. The sheet
+splits them so review attention goes where it's expensive.
+
 ## Testing discipline
 
 1. Compile check first (`compileKotlin` on both modules).

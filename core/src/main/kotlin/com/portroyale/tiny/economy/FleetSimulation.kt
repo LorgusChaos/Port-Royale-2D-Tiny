@@ -5,6 +5,9 @@ import com.portroyale.tiny.factions.sellPriceMultiplier
 import com.portroyale.tiny.world.GameClock
 import com.portroyale.tiny.world.Ports
 
+private const val MAINTENANCE_FOULING_THRESHOLD = 0.5f
+private const val MAINTENANCE_HULL_FRACTION_THRESHOLD = 0.2f
+
 /**
  * Everything about what a hired captain actually DOES each leg of their route, plus the hire/
  * assign/recall lifecycle around it - kept separate from both Player (plain state) and
@@ -68,18 +71,27 @@ object FleetSimulation {
         return true
     }
 
-    /** Interrupts a captain's voyage: their ship docks at whichever route port they most
-     *  recently left (the best approximation available, since a leg in progress has no tracked
-     *  real position), any cargo aboard is written off, and the captain goes idle - still on the
-     *  roster, stats and lifetime profit intact, ready to crew a different ship later. */
+    /** Interrupts a captain's voyage: their ship docks at the shelter port if they were actually
+     *  sitting in one, otherwise whichever route port they most recently left (the best
+     *  approximation available for a leg genuinely in progress) - any cargo aboard is written
+     *  off, and the captain goes idle, still on the roster, stats and lifetime profit intact,
+     *  ready to crew a different ship later. */
     fun recall(player: Player, captain: Captain) {
         val shipId = captain.shipId ?: return
-        val lastDeparted = if (captain.headingToB) captain.portA else captain.portB
-        player.ownedShips.find { it.id == shipId }?.dockedAt = lastDeparted
+        val dockPort = if (captain.shelterPort.isNotEmpty()) {
+            captain.shelterPort
+        } else if (captain.headingToB) {
+            captain.portA
+        } else {
+            captain.portB
+        }
+        player.ownedShips.find { it.id == shipId }?.dockedAt = dockPort
         captain.shipId = null
         captain.cargoUnits = 0
         captain.cargoGood = null
         captain.cargoCostTotal = 0
+        captain.sheltering = false
+        captain.shelterPort = ""
         captain.lastReport = "Recalled - idle, awaiting a new ship."
     }
 
@@ -93,19 +105,32 @@ object FleetSimulation {
      *  the captain "arrive" somewhere the rendered path never actually went. */
     fun canRedirect(captain: Captain): Boolean = !captain.headingToB
 
-    /** Advances every active captain's route by however much game-time just passed, resolving
-     *  any leg that finished (arrival + trade - see resolveArrival). Danger is NOT handled here
-     *  any more: a captain's ship has a real on-screen position (see PortRoyaleGame.
-     *  fleetShipTransform), so whether they run into trouble is resolved by real proximity to a
-     *  real hostile AI ship, the same system the player's own encounters already use - see
-     *  PortRoyaleGame.updateFleetEncounters/loseCaptain. This function only ever advances a
-     *  captain who's still alive to advance. */
+    /** Advances every active captain's route by however much game-time just passed. Three cases
+     *  per captain, in order: still travelling TO a shelter port (see [departForShelter]) - once
+     *  the clock says they've arrived, they just start waiting, no redeparture; already waiting
+     *  at shelter (see [Captain.sheltering]) - PortRoyaleGame decides when it's safe and calls
+     *  [resumeFromShelter], this function does nothing for them meanwhile; normal route leg -
+     *  resolve the arrival (trade) and depart for the next one. Danger itself is NOT handled
+     *  here: a captain's ship has a real on-screen position (see PortRoyaleGame.
+     *  fleetShipTransform), so whether they run into trouble, and whether they see it coming
+     *  early enough to avoid it, is resolved by real proximity to real AI ships - see
+     *  PortRoyaleGame.updateFleetEncounters/loseCaptain. */
     fun update(player: Player, currentGameMinutes: Float, distanceBetween: (String, String) -> Float) {
         val active = player.captains.filter { !it.isIdle }
         for (captain in active) {
+            if (captain.shelterPort.isNotEmpty() && !captain.sheltering) {
+                if (currentGameMinutes < captain.arrivesAtGameMinutes) continue
+                val ship = player.ownedShips.find { it.id == captain.shipId } ?: continue
+                performMaintenance(player, ship)
+                captain.sheltering = true
+                captain.lastReport = "${captain.name} is holding at ${captain.shelterPort}, waiting for the danger to pass."
+                continue
+            }
+            if (captain.sheltering) continue
             if (currentGameMinutes < captain.arrivesAtGameMinutes) continue
             val ship = player.ownedShips.find { it.id == captain.shipId } ?: continue
             resolveArrival(player, captain, ship)
+            performMaintenance(player, ship)
             departFor(captain, ship, currentGameMinutes, distanceBetween)
         }
     }
@@ -118,12 +143,51 @@ object FleetSimulation {
         player.captains.remove(captain)
     }
 
+    /** Sends a captain running for [shelterPortName] instead of their normal route - see
+     *  M11's decision sheet. [legMinutes] is precomputed by the caller (PortRoyaleGame) from the
+     *  captain's actual current position, since FleetSimulation has no map/position access of
+     *  its own. No trade happens at the shelter port - see [update]'s shelter-arrival branch. */
+    fun departForShelter(captain: Captain, shelterPortName: String, legMinutes: Float, currentGameMinutes: Float) {
+        captain.shelterPort = shelterPortName
+        captain.sheltering = false
+        captain.legDurationGameMinutes = legMinutes.coerceAtLeast(1f)
+        captain.arrivesAtGameMinutes = currentGameMinutes + captain.legDurationGameMinutes
+        captain.lastReport = "${captain.name} makes a run for $shelterPortName to wait out trouble."
+    }
+
+    /** Resumes the original route from the shelter port once PortRoyaleGame decides it's safe -
+     *  a normal leg toward whichever of portA/portB the captain still hasn't reached, just
+     *  starting from [Captain.shelterPort] instead of the port they'd normally depart from. */
+    fun resumeFromShelter(player: Player, captain: Captain, currentGameMinutes: Float, distanceBetween: (String, String) -> Float) {
+        val ship = player.ownedShips.find { it.id == captain.shipId } ?: return
+        val dest = if (captain.headingToB) captain.portB else captain.portA
+        val fromPort = captain.shelterPort
+        val distance = distanceBetween(fromPort, dest)
+        val minutes = GameClock.realSecondsToGameMinutes(distance / ship.effectiveSpeed).coerceAtLeast(1f)
+        captain.shelterPort = ""
+        captain.sheltering = false
+        captain.legDurationGameMinutes = minutes
+        captain.arrivesAtGameMinutes = currentGameMinutes + minutes
+        captain.lastReport = "${captain.name} resumes course from $fromPort toward $dest."
+    }
+
+    /** Redirects the CURRENT leg's timing without changing where it ends up (portA/portB/
+     *  headingToB untouched) - used when a captain steers around a nearby threat instead of
+     *  sailing straight at it (see PortRoyaleGame's detour logic): the destination is the same,
+     *  the route there is longer, so the arrival clock needs to agree with the longer path
+     *  actually being rendered, or the two would silently disagree about when they've arrived. */
+    fun redirectCurrentLeg(captain: Captain, legMinutes: Float, currentGameMinutes: Float) {
+        captain.legDurationGameMinutes = legMinutes.coerceAtLeast(1f)
+        captain.arrivesAtGameMinutes = currentGameMinutes + captain.legDurationGameMinutes
+    }
+
     /** Starts the next leg (toward whichever port [Captain.headingToB] now points at), stamping
-     *  how long it will really take given this ship's speed and the actual sea distance - not a
-     *  flat duration, so a Sloop and a Galleon (or any future speed modifier) visibly move at
-     *  different, honest rates instead of every ship sharing one arbitrary timer regardless of
-     *  type or route length. Mirrors player.effectiveSpeed's own units (world-units per real
-     *  second) so a fleet ship covers ground at the same rate the player's own ship would. */
+     *  how long it will really take given this ship's OWN current speed (fouling and sail
+     *  upgrades included - see OwnedShip.effectiveSpeed) and the actual sea distance - not a flat
+     *  duration, so a Sloop and a Galleon (or a fouled hull overdue for a scrub) visibly move at
+     *  different, honest rates instead of every ship sharing one arbitrary timer. Mirrors
+     *  player.effectiveSpeed's own units (world-units per real second) so a fleet ship covers
+     *  ground at the same rate the player's own ship would, condition for condition. */
     private fun departFor(
         captain: Captain,
         ship: OwnedShip,
@@ -133,10 +197,35 @@ object FleetSimulation {
         val origin = if (captain.headingToB) captain.portA else captain.portB
         val dest = if (captain.headingToB) captain.portB else captain.portA
         val distance = distanceBetween(origin, dest)
-        val realSeconds = distance / ship.shipType.speed
+        val realSeconds = distance / ship.effectiveSpeed
         val minutes = GameClock.realSecondsToGameMinutes(realSeconds).coerceAtLeast(1f)
         captain.legDurationGameMinutes = minutes
         captain.arrivesAtGameMinutes = currentGameMinutes + minutes
+    }
+
+    /** Checked on every port arrival, including a shelter stop - a captain looks after their own
+     *  ship exactly like a player who was paying attention would, paying from the shared purse
+     *  only when it's actually worth it (see the two thresholds above) and only for upkeep
+     *  (repair/cleaning), never upgrades - those stay a deliberate investment the player makes,
+     *  not something a bot spends on unprompted. Skips silently if the wallet's short - tries
+     *  again next port, same as it does when it can't afford to restock cargo. */
+    private fun performMaintenance(player: Player, ship: OwnedShip) {
+        val condition = ship.condition
+        if (condition.fouling > MAINTENANCE_FOULING_THRESHOLD) {
+            val cost = condition.cleanCost()
+            if (player.gold >= cost) {
+                player.gold -= cost
+                condition.fouling = 0f
+            }
+        }
+        val maxHull = ship.shipType.maxHull
+        if ((maxHull - condition.currentHull).toFloat() / maxHull > MAINTENANCE_HULL_FRACTION_THRESHOLD) {
+            val cost = condition.repairCost(maxHull)
+            if (player.gold >= cost) {
+                player.gold -= cost
+                condition.currentHull = maxHull
+            }
+        }
     }
 
     /** Resolves whatever just happened on arrival, then flips [Captain.headingToB] so the next

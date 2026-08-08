@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.4.5.3] - 2026-08-08
+
+### Added
+- Pursuit (M11): a hostile ship (pirate, or a faction's military once reputation with them has
+  soured enough) that spots the player or a fleet captain's ship from a distance breaks off its
+  patrol and actually sails after it, instead of danger only ever being a matter of who happens
+  to sail past whom. Catching up ends in an attack with no warning; a ship that was never
+  pursuing instead offers a real choice - a "Fight / Sail On" popup - the first time the two
+  cross paths.
+- Fleet captains now try to avoid trouble before it finds them: spotting a threat early, a
+  captain either makes a run for whichever port (any of them, not just their own route's two) is
+  closer than the danger itself, waits it out there, and resumes the same voyage once it's safe,
+  or - if no port is close enough - steers around the threat the same way ships already steer
+  around land, and carries on toward where they were going.
+- A captain who's actually caught now fights for real - the exact same combat math as the
+  player's own turn-based fights (miss chance, damage rolls, a chance to break off), just
+  resolved instantly instead of one click at a time. Three outcomes instead of two: winning (the
+  threat is sunk, prize money goes to the captain's lifetime profit) joins fleeing and losing.
+- Every ship in the fleet now has its own hull condition and hull fouling, exactly like the
+  player's own active ship - so a captain who's taken damage or gone too long between hull
+  cleanings is honestly slower and weaker, not reset to pristine every leg. Captains look after
+  this themselves: arriving at any port, they pay for a repair or a scrub from the shared purse
+  when it's actually worth it, the same upkeep judgment call a player paying attention would make
+  - never upgrades, those stay the player's own call.
+- The HUD's fleet quick-jump camera zoom is now a closer 90% (was 30%), so the ship itself is the
+  clear focus when you jump to it.
+
+### Internal
+- Combat's core formulas (miss chance, flee chance, damage rolls) moved out of the player-only
+  `CombatState` into shared constants, so the player's fights and a captain's can never quietly
+  drift apart.
+- `WorldMap.findPath` can now be asked to temporarily treat a circle around a point as
+  impassable, for a captain steering around a live threat - falls back to the direct route if
+  avoiding leaves no path at all, rather than freezing the ship in place.
+- Save games now carry each fleet ship's hull/fouling/upgrades and a sheltering captain's status,
+  so neither is lost across a save/load round-trip.
+
 ## [0.4.5.2] - 2026-08-07
 
 ### Added

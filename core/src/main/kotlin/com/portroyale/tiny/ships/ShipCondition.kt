@@ -48,3 +48,19 @@ class ShipCondition(maxHull: Int) {
     fun cleanCost(): Int = CLEAN_HULL_COST
     fun repairCost(maxHull: Int): Int = (maxHull - currentHull) * REPAIR_COST_PER_HP
 }
+
+/** Shared with [economy.Player] and [economy.OwnedShip] (a fleet captain's ship, see 02-fleet-
+ *  and-captains.md) so "how a ShipType+ShipCondition pair turns into a real combat/sailing stat"
+ *  can never quietly drift between the two - a captain's ship earns/loses the exact same speed
+ *  from the exact same fouling or sail upgrades the player's own ship would. */
+fun effectiveSpeed(shipType: ShipType, condition: ShipCondition): Float =
+    (shipType.speed + condition.sailLevel * SAIL_SPEED_BONUS) * (1f - condition.fouling * FOULING_SPEED_PENALTY)
+
+fun effectiveManeuverability(shipType: ShipType, condition: ShipCondition): Int =
+    shipType.baseManeuverability + condition.oarLevel * OAR_MANEUVER_BONUS
+
+fun effectiveMinDamage(shipType: ShipType, condition: ShipCondition): Int =
+    shipType.minDamage + condition.cannonLevel * CANNON_DAMAGE_BONUS
+
+fun effectiveMaxDamage(shipType: ShipType, condition: ShipCondition): Int =
+    shipType.maxDamage + condition.cannonLevel * CANNON_DAMAGE_BONUS

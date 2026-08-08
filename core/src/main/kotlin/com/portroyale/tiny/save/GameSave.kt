@@ -14,6 +14,7 @@ import com.portroyale.tiny.economy.OwnedShip
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.economy.Warehouse
 import com.portroyale.tiny.factions.Faction
+import com.portroyale.tiny.ships.ShipCondition
 import com.portroyale.tiny.ships.ShipType
 import com.portroyale.tiny.ships.ShipTypes
 import com.portroyale.tiny.world.GameClock
@@ -76,14 +77,23 @@ class CaptainSaveEntry {
     var legDurationGameMinutes: Float = DEFAULT_LEG_MINUTES
     var lastReport: String = ""
     var totalProfit: Int = 0
+    var sheltering: Boolean = false
+    var shelterPort: String = ""
 }
 
-/** Plain no-arg-constructor POJO for one OwnedShip - see GameSaveData.ownedShips. */
+/** Plain no-arg-constructor POJO for one OwnedShip - see GameSaveData.ownedShips. [currentHull]
+ *  of 0 means "not saved with a real value" (an older save, or a fresh ship) - resolved to that
+ *  ship type's full maxHull rather than taken literally, since 0 HP would mean already sunk. */
 class OwnedShipSaveEntry {
     var id: Int = 0
     var name: String = ""
     var shipTypeName: String = "Sloop"
     var dockedAt: String = ""
+    var currentHull: Int = 0
+    var fouling: Float = 0f
+    var cannonLevel: Int = 0
+    var oarLevel: Int = 0
+    var sailLevel: Int = 0
 }
 
 /** One save's identity for list screens - name plus when it was written, so the player can tell
@@ -160,6 +170,8 @@ object SaveManager {
             entry.legDurationGameMinutes = captain.legDurationGameMinutes
             entry.lastReport = captain.lastReport
             entry.totalProfit = captain.totalProfit
+            entry.sheltering = captain.sheltering
+            entry.shelterPort = captain.shelterPort
             data.captains.add(entry)
         }
 
@@ -169,6 +181,11 @@ object SaveManager {
             entry.name = ownedShip.name
             entry.shipTypeName = ownedShip.shipType.name
             entry.dockedAt = ownedShip.dockedAt
+            entry.currentHull = ownedShip.condition.currentHull
+            entry.fouling = ownedShip.condition.fouling
+            entry.cannonLevel = ownedShip.condition.cannonLevel
+            entry.oarLevel = ownedShip.condition.oarLevel
+            entry.sailLevel = ownedShip.condition.sailLevel
             data.ownedShips.add(entry)
         }
         data.activeShipId = player.activeShipId
@@ -242,17 +259,27 @@ object SaveManager {
                 arrivesAtGameMinutes = entry.arrivesAtGameMinutes,
                 legDurationGameMinutes = if (entry.legDurationGameMinutes > 0f) entry.legDurationGameMinutes else DEFAULT_LEG_MINUTES,
                 lastReport = entry.lastReport,
-                totalProfit = entry.totalProfit
+                totalProfit = entry.totalProfit,
+                sheltering = entry.sheltering,
+                shelterPort = entry.shelterPort
             )
         }.toMutableList()
 
     fun resolveOwnedShips(data: GameSaveData): MutableList<OwnedShip> =
         data.ownedShips.map { entry ->
+            val shipType = resolveShipType(entry.shipTypeName)
+            val condition = ShipCondition(shipType.maxHull)
+            condition.currentHull = if (entry.currentHull > 0) entry.currentHull else shipType.maxHull
+            condition.fouling = entry.fouling
+            condition.cannonLevel = entry.cannonLevel
+            condition.oarLevel = entry.oarLevel
+            condition.sailLevel = entry.sailLevel
             OwnedShip(
                 id = entry.id,
                 name = entry.name,
-                shipType = resolveShipType(entry.shipTypeName),
-                dockedAt = entry.dockedAt
+                shipType = shipType,
+                dockedAt = entry.dockedAt,
+                condition = condition
             )
         }.toMutableList()
 }

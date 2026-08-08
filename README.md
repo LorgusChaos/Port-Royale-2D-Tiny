@@ -3,16 +3,17 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5.2 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.5.3 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
-> ships, a small hired fleet of your own captains, warehouses/property, loans, autosave, audio,
-> and a full main menu with save/load are all playable in a rough form; art and content breadth
-> are still early. See [Roadmap](#roadmap).
+> ships that actually hunt down a target they've spotted, a small hired fleet of captains who
+> fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
+> menu with save/load are all playable in a rough form; art and content breadth are still early.
+> See [Roadmap](#roadmap).
 
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5.2
+## What's here in v0.4.5.3
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -51,16 +52,23 @@ franchise's creators or publishers.
   own - never at a loss - the player only sets which two ports they run between. Their ship
   sails the same real, coastline-hugging routes as the player's own, visible on the map and
   clickable for a status popup (cargo, route, lifetime profit, redirect, recall); a HUD icon
-  jumps the camera straight to any of them. They face the same dangers the player does - pirates
-  and hostile factions, by the same rules - and a loss is permanent.
+  jumps the camera straight to any of them (zoomed in close). Every ship in the fleet has its
+  own hull condition and fouling, exactly like your own active ship, and a captain pays for
+  repair/cleaning out of the shared purse themselves when it's worth it.
+- Danger for both you and your captains is a real thing happening on the map, not a hidden roll:
+  a hostile ship that spots a target from a distance actually breaks off and sails after it -
+  catching up means an attack with no warning, while a ship you simply crossed paths with instead
+  offers a real choice ("Fight" or "Sail On"). A captain who sees trouble coming tries to dodge
+  it first - running for whichever port is closer than the danger itself, or steering around it
+  the same way ships already steer around land - and if caught anyway, fights for real (the same
+  combat math as your own fights, just resolved instantly): win, flee, or lose the ship for good.
 - A living map: trade and military ships patrol between their faction's own ports; pirates wander
   between any port at a random tier (1-5, hull size/speed and reward scaled to match) and flee
   rather than engage a ship clearly stronger than them, and vice versa - every AI ship's sailing
   speed comes from the same ship-type table the player and hired captains use, not a separate
-  hand-picked number. Pirates and hostile-reputation military ships engage on approach; peaceful
-  ships can be deliberately hunted down for loot. Ports are a safe harbor - no encounter ever
-  triggers near one. Ships visibly dock - they disappear into a port on arrival (a slow purple
-  glow marks where) and reappear only once you set off again.
+  hand-picked number. Peaceful ships can be deliberately hunted down for loot. Ports are a safe
+  harbor - no encounter ever triggers near one. Ships visibly dock - they disappear into a port
+  on arrival (a slow purple glow marks where) and reappear only once you set off again.
 - Random sea events: 30 invisible, one-time locations scattered across the water (respawning
   elsewhere after a delay once triggered) for classic encounters - a flavor-text bottle, a gold
   or goods chest, or a castaway who pays for a lift to a random port. Shown in a dismissible,
@@ -209,11 +217,13 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       alternative ammunition types - *priority under review*; combat is meant to stay a
       support system rather than a deep one of its own, so this waits until M10a/M10b show
       whether combat actually feels shallow in practice
-- [ ] **M11** - chase-mechanic polish, more ships on the map, a ship-stat balance pass (speed/
-      cargo/damage/etc), an NPC-encounter popup (Fight / Sail On) instead of automatic
-      engagement, and an "attack" distinction - a ship that was actively pursuing the player
-      counts as an attack rather than a random encounter, removing the "Sail On" option in
-      that case
+- [x] **M11** - a hostile ship that spots a target now actually pursues it instead of engaging
+      only on chance proximity; catching up is an attack with no warning, a passive encounter
+      instead offers a real "Fight / Sail On" choice; fleet captains proactively dodge trouble
+      (shelter in any port, or steer around a threat) and fight for real (not a coin flip) if
+      caught anyway *(this release - "more ships on the map" and a ship-stat balance pass are
+      pure numbers with no shape decision behind them, deferred to be eyeballed alongside M15's
+      own balance pass rather than guessed at now)*
 - [ ] **M11b** - route safety: a simple track record per port pair ("N safe trips, M threat
       encounters"), shown when assigning a captain's route - deliberately not a numeric
       "danger score", to stay consistent with not handing the player a full picture upfront

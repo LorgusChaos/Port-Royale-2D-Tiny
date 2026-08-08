@@ -22,12 +22,14 @@ import com.badlogic.gdx.utils.viewport.Viewport
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.combat.CombatOutcome
 import com.portroyale.tiny.combat.CombatState
+import com.portroyale.tiny.combat.FleetCombatResolver
+import com.portroyale.tiny.combat.FleetCombatResult
 import com.portroyale.tiny.combat.ShipCombatant
 import com.portroyale.tiny.economy.Captain
-import com.portroyale.tiny.economy.ENCOUNTER_COOLDOWN_SECONDS
 import com.portroyale.tiny.economy.FleetSimulation
 import com.portroyale.tiny.economy.Good
 import com.portroyale.tiny.economy.MarketState
+import com.portroyale.tiny.economy.OwnedShip
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.factions.REPUTATION_HOSTILE_THRESHOLD
@@ -123,6 +125,21 @@ private const val MILITARY_SHIPS_PER_FACTION = 1
 private const val PIRATE_SHIP_COUNT = 4
 private const val REP_LOSS_TRADE = -8
 private const val REP_LOSS_MILITARY = -15
+// M10b persistence (see PortRoyaleGame.giveUpCooldownFor): a ship that just failed to catch its
+// target either peels off for a while (CAUTIOUS) or comes straight back (RELENTLESS) - military
+// hostility reuses reputation, a pirate reuses the tier gap in lieu of a separate fame stat
+// (Project design/03-combat-threat-model.md recommends skipping that extra metric for the MVP).
+private const val GIVE_UP_COOLDOWN_CAUTIOUS = 120f
+private const val GIVE_UP_COOLDOWN_RELENTLESS = 15f
+private const val PIRATE_RELENTLESS_TIER_GAP = 2
+// M11: once pursuing, only gives up on a target more than PIRATE_FLEE_AWARENESS_RADIUS times this
+// away - a little hysteresis past the noticing radius itself so pursuit doesn't flicker on/off
+// for a target sitting right at the boundary.
+private const val PURSUIT_GIVE_UP_MULTIPLIER = 1.5f
+// How wide a berth a captain's detour gives a threat it's steering around (see
+// PortRoyaleGame.evadeIfNeeded) - bigger than AI_SHIP_ENGAGE_RADIUS on purpose, a route that
+// only just skirts engage range isn't really avoiding anything.
+private const val FLEET_DETOUR_AVOID_RADIUS = 100f
 private const val AUTOSAVE_INTERVAL_SECONDS = 600f
 private const val SEA_EVENT_POOL_SIZE = 30
 private const val SEA_EVENT_TRIGGER_RADIUS = 90f
@@ -973,11 +990,13 @@ class PortRoyaleGame : ApplicationAdapter() {
     private fun updateAiShips(delta: Float) {
         val myTier = shipTier(player.ship)
         for (ship in aiShips) {
+            if (ship.giveUpCooldown > 0f) ship.giveUpCooldown -= delta
             if (ship.role == AiShipRole.PIRATE && ship.tier < myTier &&
                 shipPosition.dst(ship.position) < PIRATE_FLEE_AWARENESS_RADIUS
             ) {
                 if (fleeFromPlayer(ship, delta)) continue
             }
+            if (updatePursuit(ship, delta)) continue
             if (ship.pathIndex >= ship.path.size) {
                 retargetAiShip(ship)
                 continue
@@ -996,6 +1015,70 @@ class PortRoyaleGame : ApplicationAdapter() {
             ship.position.y += ny * ship.speed * delta
             ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
         }
+    }
+
+    /** M11: a hostile ship that spots a target (the player, or any active fleet captain's ship)
+     *  within [PIRATE_FLEE_AWARENESS_RADIUS] breaks off its patrol and heads straight for it -
+     *  the counterpart to fleeFromPlayer, same straight-line-no-pathfinding approach and the same
+     *  reason (recomputing a real path every frame toward a moving target is wasted work; this
+     *  bails out on hitting land rather than risk crossing it). Once locked onto a target it
+     *  won't retarget mid-chase (see ship.isPursuing) - reconsidering every frame would mean a
+     *  target juking sideways instantly "erases" the fact it was ever spotted, which reads as the
+     *  ship being oblivious rather than persistent. Returns true when pursuit consumed this
+     *  ship's movement for the frame, so the caller skips normal patrol movement. */
+    private fun updatePursuit(ship: AiShip, delta: Float): Boolean {
+        if (ship.giveUpCooldown > 0f) {
+            ship.isPursuing = false
+            ship.pursuingCaptain = null
+            return false
+        }
+        if (!ship.isPursuing) {
+            var bestDist = PIRATE_FLEE_AWARENESS_RADIUS
+            var bestCaptain: Captain? = null
+            var found = false
+            if (player.ship != ShipTypes.WRECK && isHostile(ship, shipTier(player.ship))) {
+                val dist = ship.position.dst(shipPosition)
+                if (dist < bestDist) {
+                    bestDist = dist
+                    found = true
+                }
+            }
+            for (captain in player.captains) {
+                if (captain.isIdle) continue
+                val ownedShip = player.ownedShips.find { it.id == captain.shipId } ?: continue
+                if (!isHostile(ship, shipTier(ownedShip.shipType))) continue
+                val pos = fleetShipTransform(captain)?.first ?: continue
+                val dist = ship.position.dst(pos)
+                if (dist < bestDist) {
+                    bestDist = dist
+                    bestCaptain = captain
+                    found = true
+                }
+            }
+            if (!found) return false
+            ship.isPursuing = true
+            ship.pursuingCaptain = bestCaptain
+        }
+
+        val targetPos = ship.pursuingCaptain?.let { fleetShipTransform(it)?.first } ?: shipPosition
+        val dist = ship.position.dst(targetPos)
+        if (dist > PIRATE_FLEE_AWARENESS_RADIUS * PURSUIT_GIVE_UP_MULTIPLIER) {
+            ship.isPursuing = false
+            ship.pursuingCaptain = null
+            return false
+        }
+        val dx = targetPos.x - ship.position.x
+        val dy = targetPos.y - ship.position.y
+        val len = Vector2(dx, dy).len().coerceAtLeast(0.01f)
+        val nx = dx / len
+        val ny = dy / len
+        val newX = ship.position.x + nx * ship.speed * delta
+        val newY = ship.position.y + ny * ship.speed * delta
+        if (worldMap.isWater(newX, newY)) {
+            ship.position.set(newX, newY)
+            ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
+        }
+        return true
     }
 
     /** An outmatched pirate's panic move: sail directly away from the player, ignoring its
@@ -1051,6 +1134,23 @@ class PortRoyaleGame : ApplicationAdapter() {
         if (ship.role != AiShipRole.MILITARY) return false
         val faction = ship.faction ?: return false
         return (player.reputation[faction] ?: 0) <= REPUTATION_HOSTILE_THRESHOLD
+    }
+
+    /** How long [ship] waits before it'll try [targetTier] again after failing to catch it this
+     *  time (see finishCombat's FLED branch and updateFleetEncounters) - the persistence half of
+     *  the threat model, isHostile above being the "does it attack at all" half. A military ship
+     *  is relentless exactly when it's already hostile (reputation this low means it's actively
+     *  hunting the player, not giving up after one miss); a pirate has no reputation stat, so it
+     *  reuses how badly it outguns the target instead - a lopsided tier advantage means it has
+     *  little to lose trying again immediately, a fairer fight means it backs off like any other
+     *  cautious ship. */
+    private fun giveUpCooldownFor(ship: AiShip, targetTier: Int): Float {
+        val relentless = when (ship.role) {
+            AiShipRole.PIRATE -> ship.tier - targetTier >= PIRATE_RELENTLESS_TIER_GAP
+            AiShipRole.MILITARY -> isHostile(ship, targetTier)
+            AiShipRole.TRADE -> false
+        }
+        return if (relentless) GIVE_UP_COOLDOWN_RELENTLESS else GIVE_UP_COOLDOWN_CAUTIOUS
     }
 
     /** 1 (Sloop) through 5 (Galleon) matching ShipTypes.ALL's own order; a Wreck counts as the
@@ -1121,34 +1221,68 @@ class PortRoyaleGame : ApplicationAdapter() {
 
     /** Whether a fleet captain runs into real trouble - NOT an abstract per-leg dice roll, an
      *  actual proximity check against the same aiShips the player themselves can run into, using
-     *  the same [isHostile] (pirates by relative tier, faction military by reputation) - a
-     *  captain sailing through a quiet stretch of water is never at risk, and one sailing through
-     *  a pirate-heavy corridor actually is. [Captain.encounterCooldown] (real seconds, not scaled
-     *  by GameSpeed - it's a technical debounce, not world time) stops the same still-nearby ship
-     *  from re-rolling the escape check every single frame once evaded. Ports are a safe harbor,
-     *  same as for the player (see isNearAnyPort). Escape uses the captain's own ship speed vs
-     *  the threat's real speed, plus caution - see Captain.escapeChance. Failing to escape is a
-     *  total, permanent loss (see FleetSimulation.loseCaptain) - same as the player's own combat
-     *  losses, no rescue rollback. */
+     *  the same [isHostile] (pirates by relative tier, faction military by reputation). Three
+     *  things can happen to an active captain each frame, in order: still sheltering/travelling
+     *  to shelter from an earlier scare (see [resumeIfSafe] - nothing else runs for them this
+     *  frame); actually caught (a hostile, off-cooldown ship within engage range - see
+     *  [resolveFleetCombat], a REAL fight, not a coin flip); or just sailing, in which case
+     *  [evadeIfNeeded] gets a chance to notice trouble early and react before it comes to that. */
     private fun updateFleetEncounters(delta: Float) {
-        for (captain in player.captains.filter { !it.isIdle }) {
-            if (captain.encounterCooldown > 0f) {
-                captain.encounterCooldown -= delta
+        for (captain in player.captains) {
+            if (captain.isIdle) continue
+            val ownedShip = player.ownedShips.find { it.id == captain.shipId } ?: continue
+
+            if (captain.sheltering) {
+                resumeIfSafe(captain, ownedShip)
                 continue
             }
-            val ownedShip = player.ownedShips.find { it.id == captain.shipId } ?: continue
+            if (captain.shelterPort.isNotEmpty()) continue // still en route to shelter
+
             val pos = fleetShipTransform(captain)?.first ?: continue
             if (isNearAnyPort(pos)) continue
 
             val tier = shipTier(ownedShip.shipType)
-            val threat = aiShips.firstOrNull { isHostile(it, tier) && pos.dst(it.position) < AI_SHIP_ENGAGE_RADIUS }
-                ?: continue
+            val caught = aiShips.firstOrNull {
+                isHostile(it, tier) && it.giveUpCooldown <= 0f && pos.dst(it.position) < AI_SHIP_ENGAGE_RADIUS
+            }
+            if (caught != null) {
+                resolveFleetCombat(captain, ownedShip, caught)
+                continue
+            }
+            evadeIfNeeded(captain, ownedShip, pos)
+        }
+    }
 
-            if (MathUtils.random() < captain.escapeChance(ownedShip.shipType.speed, threat.speed)) {
-                captain.encounterCooldown = ENCOUNTER_COOLDOWN_SECONDS
-                val place = if (captain.headingToB) captain.portA else captain.portB
-                captain.lastReport = "${captain.name} evaded a ${threat.displayName} near $place."
-            } else {
+    /** A real fight, resolved instantly - see FleetCombatResolver, which reuses the exact same
+     *  formulas as the player's own turn-based combat. Victory keeps the ship (possibly battered)
+     *  and pays out like the player's own victories; fleeing mid-fight also keeps the ship, just
+     *  battered, and gives the enemy the same give-up cooldown a miss would; defeat is total and
+     *  permanent, same as it's always been - no rescue rollback. */
+    private fun resolveFleetCombat(captain: Captain, ownedShip: OwnedShip, threat: AiShip) {
+        val outcome = FleetCombatResolver.resolve(
+            shipMaxHull = ownedShip.shipType.maxHull,
+            shipStartHull = ownedShip.condition.currentHull,
+            shipMinDamage = ownedShip.effectiveMinDamage,
+            shipMaxDamage = ownedShip.effectiveMaxDamage,
+            shipManeuverability = ownedShip.effectiveManeuverability,
+            caution = captain.caution,
+            enemy = threat
+        )
+        when (outcome.result) {
+            FleetCombatResult.VICTORY -> {
+                ownedShip.condition.currentHull = outcome.remainingHull
+                player.gold += outcome.goldReward
+                captain.totalProfit += outcome.goldReward
+                aiShips.remove(threat)
+                respawnReplacement(threat)
+                captain.lastReport = "${captain.name} fought off a ${threat.displayName} and claimed ${outcome.goldReward}g."
+            }
+            FleetCombatResult.FLED -> {
+                ownedShip.condition.currentHull = outcome.remainingHull
+                threat.giveUpCooldown = giveUpCooldownFor(threat, shipTier(ownedShip.shipType))
+                captain.lastReport = "${captain.name} broke off from a ${threat.displayName}, ship battered but afloat."
+            }
+            FleetCombatResult.DEFEAT -> {
                 eventToastUI.show(
                     "Your captain ${captain.name} was caught by a ${threat.displayName} and lost - " +
                         "along with their ship and everything aboard.",
@@ -1159,6 +1293,65 @@ class PortRoyaleGame : ApplicationAdapter() {
         }
     }
 
+    /** Proactive evasion (see M11's decision sheet) - a captain who spots trouble early tries to
+     *  avoid it "by any means available", the same two tactics a paying-attention player would
+     *  use: run for whichever port (any port, not just this route's own two) is closer than the
+     *  threat itself is, or, if no port is close enough, steer around the threat the same way the
+     *  ship already steers around land (see WorldMap.findPath's avoid param) and keep going.
+     *  Reacts once per threat (see FleetPathEntry.avoidedThreat) rather than replanning every
+     *  frame - a captain who already committed to a maneuver doesn't un-commit mid-manoeuvre. */
+    private fun evadeIfNeeded(captain: Captain, ownedShip: OwnedShip, pos: Vector2) {
+        val tier = shipTier(ownedShip.shipType)
+        val threat = aiShips.firstOrNull {
+            isHostile(it, tier) && it.giveUpCooldown <= 0f && pos.dst(it.position) < PIRATE_FLEE_AWARENESS_RADIUS
+        } ?: return
+        if (fleetPaths[captain]?.avoidedThreat === threat) return
+
+        val nearestPort = resolvedPorts.minByOrNull { it.approachPoint.dst(pos) } ?: return
+        val distanceToPort = nearestPort.approachPoint.dst(pos)
+        val distanceToThreat = threat.position.dst(pos)
+
+        if (distanceToPort < distanceToThreat) {
+            val legMinutes = GameClock.realSecondsToGameMinutes(distanceToPort / ownedShip.effectiveSpeed).coerceAtLeast(1f)
+            FleetSimulation.departForShelter(captain, nearestPort.port.name, legMinutes, GameClock.totalGameMinutes)
+            val path = worldMap.findPath(pos, nearestPort.approachPoint)?.takeIf { it.isNotEmpty() }
+                ?: listOf(pos.cpy(), nearestPort.approachPoint.cpy())
+            fleetPaths[captain] = FleetPathEntry("", nearestPort.port.name, path, threat)
+        } else {
+            val dest = if (captain.headingToB) captain.portB else captain.portA
+            val destPos = portApproachPos(dest) ?: return
+            val detourPath = worldMap.findPath(pos, destPos, threat.position, FLEET_DETOUR_AVOID_RADIUS)
+                ?.takeIf { it.isNotEmpty() } ?: listOf(pos.cpy(), destPos.cpy())
+            val legMinutes = GameClock.realSecondsToGameMinutes(pathLength(detourPath) / ownedShip.effectiveSpeed).coerceAtLeast(1f)
+            FleetSimulation.redirectCurrentLeg(captain, legMinutes, GameClock.totalGameMinutes)
+            val origin = if (captain.headingToB) captain.portA else captain.portB
+            fleetPaths[captain] = FleetPathEntry(origin, dest, detourPath, threat)
+        }
+    }
+
+    /** Checked every frame a captain is waiting at shelter - "safe" means no hostile, off-
+     *  cooldown ship is within noticing range of the shelter port itself (broader than just
+     *  tracking the one original threat: staying an extra moment costs nothing, ports are already
+     *  an absolute safe harbor, so there's no reason to leave into a DIFFERENT danger that
+     *  happened to wander close). Once safe, resumes toward wherever the captain was originally
+     *  headed and pins a fresh render path from the real shelter position - not the named route
+     *  port fleetPath would otherwise assume as the leg's start. */
+    private fun resumeIfSafe(captain: Captain, ownedShip: OwnedShip) {
+        val shelterPos = portApproachPos(captain.shelterPort) ?: return
+        val tier = shipTier(ownedShip.shipType)
+        val stillDangerous = aiShips.any {
+            isHostile(it, tier) && it.giveUpCooldown <= 0f && it.position.dst(shelterPos) < PIRATE_FLEE_AWARENESS_RADIUS
+        }
+        if (stillDangerous) return
+
+        val dest = if (captain.headingToB) captain.portB else captain.portA
+        val destPos = portApproachPos(dest) ?: return
+        val origin = if (captain.headingToB) captain.portA else captain.portB
+        FleetSimulation.resumeFromShelter(player, captain, GameClock.totalGameMinutes, ::fleetSeaDistance)
+        val path = worldMap.findPath(shelterPos, destPos)?.takeIf { it.isNotEmpty() } ?: listOf(shelterPos.cpy(), destPos.cpy())
+        fleetPaths[captain] = FleetPathEntry(origin, dest, path)
+    }
+
     private fun checkAiEncounters() {
         // A wrecked ship (see ShipTypes.WRECK) can't fight - 0 damage would just be a stalemate
         // or a guaranteed loss - so nothing ever engages it; it only exists to limp to a port.
@@ -1166,13 +1359,36 @@ class PortRoyaleGame : ApplicationAdapter() {
         if (isNearAnyPort(shipPosition)) return
         val myTier = shipTier(player.ship)
         for (ship in aiShips) {
-            val engaging = isHostile(ship, myTier) || ship === huntedShip
+            val engaging = (isHostile(ship, myTier) && ship.giveUpCooldown <= 0f) || ship === huntedShip
             if (!engaging) continue
             if (shipPosition.dst(ship.position) < AI_SHIP_ENGAGE_RADIUS) {
-                startAiCombat(ship)
+                // M11: a ship that hunted the player down (or that the player deliberately went
+                // after) attacks outright - no free preview. One stumbled into by chance offers a
+                // real choice instead (see showEncounterChoice) - the whole point of the pursuit
+                // mechanic is that being caught unaware feels different from a fair sighting.
+                if (ship.isPursuing || ship === huntedShip) {
+                    startAiCombat(ship)
+                } else {
+                    showEncounterChoice(ship)
+                }
                 return
             }
         }
+    }
+
+    /** The "Fight / Sail On" popup for a passive encounter (see checkAiEncounters) - Sail On
+     *  costs nothing but the same give-up cooldown a failed catch would (see giveUpCooldownFor);
+     *  declining isn't free information either way, the ship just moves on like it would after
+     *  any other miss. Reuses EventToastUI.showChoice rather than a bespoke screen. */
+    private fun showEncounterChoice(ship: AiShip) {
+        eventToastUI.showChoice(
+            "A ${ship.displayName} closes in! Will you fight, or try to sail on?",
+            IconFactory.debt,
+            "Fight",
+            { startAiCombat(ship) },
+            "Sail On",
+            { ship.giveUpCooldown = giveUpCooldownFor(ship, shipTier(player.ship)) }
+        )
     }
 
     /** One tick of the fixed-size sea-event pool: live points check for contact with the player,
@@ -1255,6 +1471,8 @@ class PortRoyaleGame : ApplicationAdapter() {
     }
 
     private fun startAiCombat(ship: AiShip) {
+        ship.isPursuing = false
+        ship.pursuingCaptain = null
         gameMode = GameMode.COMBAT
         currentAiTarget = ship
         huntedShip = null
@@ -1306,7 +1524,10 @@ class PortRoyaleGame : ApplicationAdapter() {
                     IconFactory.castaway
                 )
             }
-            CombatOutcome.FLED, CombatOutcome.ONGOING -> {}
+            CombatOutcome.FLED -> if (target != null) {
+                target.giveUpCooldown = giveUpCooldownFor(target, shipTier(player.ship))
+            }
+            CombatOutcome.ONGOING -> {}
         }
         currentAiTarget = null
         gameMode = GameMode.SAILING
@@ -1496,11 +1717,26 @@ class PortRoyaleGame : ApplicationAdapter() {
     /** Caches the actual sailable route for a captain's CURRENT leg, so a fleet ship follows the
      *  coastline instead of cutting straight across land - recomputed only when the leg's origin/
      *  destination changes (a leg completing and flipping direction, or a redirected route), not
-     *  every frame. */
-    private class FleetPathEntry(val origin: String, val dest: String, val path: List<Vector2>)
+     *  every frame. [avoidedThreat], when set, marks this entry as a hand-pinned evasion path
+     *  (see evadeIfNeeded) rather than a plain port-to-port lookup - lets updateFleetEncounters
+     *  tell "already reacting to this exact threat" from "haven't reacted yet" without a second
+     *  map. A shelter trip uses "" as [origin] (no named route port is its start - see
+     *  evadeIfNeeded), which can never collide with a real port name. */
+    private class FleetPathEntry(
+        val origin: String,
+        val dest: String,
+        val path: List<Vector2>,
+        val avoidedThreat: AiShip? = null
+    )
     private val fleetPaths = mutableMapOf<Captain, FleetPathEntry>()
 
     private fun fleetPath(captain: Captain): List<Vector2> {
+        if (captain.shelterPort.isNotEmpty()) {
+            val pinned = fleetPaths[captain]
+            if (pinned != null && pinned.origin == "" && pinned.dest == captain.shelterPort) return pinned.path
+            val pos = portApproachPos(captain.shelterPort) ?: return emptyList()
+            return listOf(pos.cpy(), pos.cpy())
+        }
         val origin = if (captain.headingToB) captain.portA else captain.portB
         val dest = if (captain.headingToB) captain.portB else captain.portA
         val existing = fleetPaths[captain]

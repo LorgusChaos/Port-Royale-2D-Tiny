@@ -3,6 +3,7 @@ package com.portroyale.tiny.world
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector2
+import com.portroyale.tiny.economy.Captain
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.ships.ShipTypes
 
@@ -30,6 +31,23 @@ class AiShip(
     var headingDeg: Float = 0f
     var path: List<Vector2> = emptyList()
     var pathIndex: Int = 0
+
+    /** World-seconds (see PortRoyaleGame.updateAiShips - already scaled by GameSpeed, same as
+     *  SeaEventSlot.respawnTimer) until this ship will attempt to engage its last failed target
+     *  again. Set on a failed catch (player fled combat, or a fleet captain evaded) - see
+     *  PortRoyaleGame.giveUpCooldownFor - and gates both checkAiEncounters and
+     *  updateFleetEncounters so a ship that just lost its prey doesn't re-roll every frame it's
+     *  still nearby. Zero means "free to engage", the default for a ship that's never failed. */
+    var giveUpCooldown: Float = 0f
+
+    /** True while this ship has broken off its patrol/wander path to actively close in on a
+     *  spotted target (see PortRoyaleGame.updateAiShips) - [pursuingCaptain] identifies WHICH
+     *  target when it's a fleet captain's ship, null while pursuing means the player themselves.
+     *  Catching up (reaching engage range) while this is true skips the player's pre-combat
+     *  Fight/Sail On choice entirely - see checkAiEncounters - since a target that was hunted
+     *  down doesn't get a free warning the way one stumbled into by chance does. */
+    var isPursuing: Boolean = false
+    var pursuingCaptain: Captain? = null
 
     val displayName: String
         get() = when (role) {

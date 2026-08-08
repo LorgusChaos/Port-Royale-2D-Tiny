@@ -5,14 +5,17 @@ import kotlin.random.Random
 
 enum class CombatOutcome { ONGOING, VICTORY, DEFEAT, FLED }
 
-private const val BASE_FLEE_CHANCE = 0.35f
-private const val FLEE_CHANCE_PER_MANEUVER = 0.004f
-private const val MAX_FLEE_CHANCE = 0.85f
-private const val MISS_CHANCE = 0.18f
-private const val EVASION_PER_MANEUVER = 0.002f
-private const val MAX_ENEMY_MISS_CHANCE = 0.5f
-private const val MIN_VICTORY_REWARD = 50
-private const val MAX_VICTORY_REWARD = 150
+// Not private: shared with combat.FleetCombatResolver, which resolves the exact same kind of
+// fight for a fleet captain's ship, just instantly and without a screen. Keeping one set of
+// numbers means the player's own combat and a captain's can never quietly drift apart.
+const val BASE_FLEE_CHANCE = 0.35f
+const val FLEE_CHANCE_PER_MANEUVER = 0.004f
+const val MAX_FLEE_CHANCE = 0.85f
+const val MISS_CHANCE = 0.18f
+const val EVASION_PER_MANEUVER = 0.002f
+const val MAX_ENEMY_MISS_CHANCE = 0.5f
+const val MIN_VICTORY_REWARD = 50
+const val MAX_VICTORY_REWARD = 150
 
 /** One turn-based encounter: player picks Fire/Flee each round, enemy always fires back unless
  *  the encounter already ended. Both sides can miss; the player's effective maneuverability

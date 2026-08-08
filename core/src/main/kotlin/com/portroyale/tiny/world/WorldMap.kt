@@ -69,10 +69,43 @@ class WorldMap(
         return null
     }
 
-    fun findPath(startWorld: Vector2, endWorld: Vector2): List<Vector2>? {
+    /** [avoid]/[avoidRadiusWorld] treat a circle of world-space as temporarily impassable for
+     *  this one call only (used by a fleet captain steering around a nearby threat, see
+     *  PortRoyaleGame's evasion logic) - the grid itself is never modified, so every other caller
+     *  (autopilot, AI patrols, a captain's normal trade route) is unaffected. If avoiding the
+     *  circle leaves no route at all (it blocks the only channel through), falls back to the
+     *  unavoidant path rather than returning null - better to sail past danger than freeze. */
+    fun findPath(
+        startWorld: Vector2,
+        endWorld: Vector2,
+        avoid: Vector2? = null,
+        avoidRadiusWorld: Float = 0f
+    ): List<Vector2>? {
+        if (avoid == null || avoidRadiusWorld <= 0f) return findPathInternal(startWorld, endWorld, null, 0f)
+        return findPathInternal(startWorld, endWorld, avoid, avoidRadiusWorld)
+            ?: findPathInternal(startWorld, endWorld, null, 0f)
+    }
+
+    private fun findPathInternal(
+        startWorld: Vector2,
+        endWorld: Vector2,
+        avoid: Vector2?,
+        avoidRadiusWorld: Float
+    ): List<Vector2>? {
         val start = worldToGrid(startWorld.x, startWorld.y)
         val goal = worldToGrid(endWorld.x, endWorld.y)
-        if (!isWalkableCell(goal.gx, goal.gy) || !isWalkableCell(start.gx, start.gy)) return null
+        val avoidGrid = avoid?.let { worldToGrid(it.x, it.y) }
+        val avoidRadiusCells = avoidRadiusWorld / cellSize
+
+        fun passable(gx: Int, gy: Int): Boolean {
+            if (!isWalkableCell(gx, gy)) return false
+            if (avoidGrid == null) return true
+            val dx = (gx - avoidGrid.gx).toFloat()
+            val dy = (gy - avoidGrid.gy).toFloat()
+            return dx * dx + dy * dy > avoidRadiusCells * avoidRadiusCells
+        }
+
+        if (!passable(goal.gx, goal.gy) || !passable(start.gx, start.gy)) return null
         if (start == goal) return listOf(endWorld.cpy())
 
         val open = PriorityQueue<Node>(compareBy { it.f })
@@ -100,9 +133,9 @@ class WorldMap(
 
             for ((dx, dy) in dirs) {
                 val neighbor = GridPos(current.gx + dx, current.gy + dy)
-                if (!isWalkableCell(neighbor.gx, neighbor.gy)) continue
+                if (!passable(neighbor.gx, neighbor.gy)) continue
                 if (dx != 0 && dy != 0) {
-                    if (!isWalkableCell(current.gx + dx, current.gy) || !isWalkableCell(current.gx, current.gy + dy)) continue
+                    if (!passable(current.gx + dx, current.gy) || !passable(current.gx, current.gy + dy)) continue
                 }
                 val stepCost = if (dx != 0 && dy != 0) 1.41421f else 1f
                 val tentativeG = (gScore[current] ?: Float.MAX_VALUE) + stepCost

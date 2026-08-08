@@ -5,13 +5,13 @@ import com.portroyale.tiny.factions.REPUTATION_MAX
 import com.portroyale.tiny.factions.REPUTATION_MIN
 import com.portroyale.tiny.factions.ReputationTier
 import com.portroyale.tiny.factions.reputationTier
-import com.portroyale.tiny.ships.CANNON_DAMAGE_BONUS
-import com.portroyale.tiny.ships.FOULING_SPEED_PENALTY
-import com.portroyale.tiny.ships.OAR_MANEUVER_BONUS
-import com.portroyale.tiny.ships.SAIL_SPEED_BONUS
 import com.portroyale.tiny.ships.ShipCondition
 import com.portroyale.tiny.ships.ShipType
 import com.portroyale.tiny.ships.ShipTypes
+import com.portroyale.tiny.ships.effectiveMaxDamage
+import com.portroyale.tiny.ships.effectiveManeuverability
+import com.portroyale.tiny.ships.effectiveMinDamage
+import com.portroyale.tiny.ships.effectiveSpeed
 
 // TODO balance: bumped for testing so Brigantine/Galleon are affordable without a long grind;
 // revisit for real economy balance once the core loop is confirmed working.
@@ -52,11 +52,10 @@ class Player(var gold: Int = 10000) {
     val cargoUsed: Int get() = cargo.values.sum()
 
     val effectiveMaxHull: Int get() = ship.maxHull
-    val effectiveMinDamage: Int get() = ship.minDamage + condition.cannonLevel * CANNON_DAMAGE_BONUS
-    val effectiveMaxDamage: Int get() = ship.maxDamage + condition.cannonLevel * CANNON_DAMAGE_BONUS
-    val effectiveManeuverability: Int get() = ship.baseManeuverability + condition.oarLevel * OAR_MANEUVER_BONUS
-    val effectiveSpeed: Float
-        get() = (ship.speed + condition.sailLevel * SAIL_SPEED_BONUS) * (1f - condition.fouling * FOULING_SPEED_PENALTY)
+    val effectiveMinDamage: Int get() = effectiveMinDamage(ship, condition)
+    val effectiveMaxDamage: Int get() = effectiveMaxDamage(ship, condition)
+    val effectiveManeuverability: Int get() = effectiveManeuverability(ship, condition)
+    val effectiveSpeed: Float get() = effectiveSpeed(ship, condition)
 
     fun canBuy(price: Int): Boolean = gold >= price && cargoUsed < cargoCapacity
 
