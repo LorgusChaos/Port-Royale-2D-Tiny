@@ -51,8 +51,9 @@ object FleetCombatResolver {
                     enemyHull = (enemyHull - Random.nextInt(shipMinDamage, shipMaxDamage + 1)).coerceAtLeast(0)
                 }
                 if (enemyHull <= 0) {
-                    val reward = Random.nextInt(MIN_VICTORY_REWARD, MAX_VICTORY_REWARD + 1)
-                    return FleetCombatOutcome(FleetCombatResult.VICTORY, shipHull, reward)
+                    // Same prize the player would collect for the same opponent - see
+                    // CombatState's victory branch and AiShip.goldReward.
+                    return FleetCombatOutcome(FleetCombatResult.VICTORY, shipHull, enemy.goldReward)
                 }
             }
 

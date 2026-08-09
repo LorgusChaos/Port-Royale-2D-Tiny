@@ -427,7 +427,7 @@ class PortRoyaleGame : ApplicationAdapter() {
             checkLoanOverdue()
             updateDebtHud()
             updateFleet()
-            updateFleetEncounters(Gdx.graphics.deltaTime)
+            updateFleetEncounters()
         }
 
         // A sea-event toast freezes sailing entirely while it's up - ship movement, AI ships,
@@ -947,11 +947,6 @@ class PortRoyaleGame : ApplicationAdapter() {
         val shipType = SaveManager.resolveShipType(data.shipTypeName)
         val cargo = SaveManager.resolveCargo(data.cargo)
         player.loadState(data.gold, shipType, cargo)
-        player.condition.currentHull = data.currentHull
-        player.condition.fouling = data.fouling
-        player.condition.cannonLevel = data.cannonLevel
-        player.condition.oarLevel = data.oarLevel
-        player.condition.sailLevel = data.sailLevel
         SaveManager.resolveReputation(data.reputation).forEach { (faction, value) -> player.reputation[faction] = value }
         MarketState.restore(data.marketState)
         GameClock.restore(data.gameClockMinutes)
@@ -959,6 +954,16 @@ class PortRoyaleGame : ApplicationAdapter() {
         player.warehouses.putAll(SaveManager.resolveWarehouses(data))
         player.loan = SaveManager.resolveLoan(data)
         player.loadFleet(SaveManager.resolveOwnedShips(data), data.activeShipId)
+        // After loadFleet, not before: player.condition resolves to the ACTIVE hull's own
+        // condition, which does not exist until the roster is restored. The top-level save
+        // fields are the active hull's truth in every format written so far - in saves from
+        // before this became one object, the per-ship entry for the active hull holds a stale
+        // copy, so these have to win.
+        player.condition.currentHull = data.currentHull
+        player.condition.fouling = data.fouling
+        player.condition.cannonLevel = data.cannonLevel
+        player.condition.oarLevel = data.oarLevel
+        player.condition.sailLevel = data.sailLevel
         player.captains.clear()
         player.captains.addAll(SaveManager.resolveCaptains(data))
         shipPosition.set(data.shipX, data.shipY)
@@ -1227,7 +1232,7 @@ class PortRoyaleGame : ApplicationAdapter() {
      *  frame); actually caught (a hostile, off-cooldown ship within engage range - see
      *  [resolveFleetCombat], a REAL fight, not a coin flip); or just sailing, in which case
      *  [evadeIfNeeded] gets a chance to notice trouble early and react before it comes to that. */
-    private fun updateFleetEncounters(delta: Float) {
+    private fun updateFleetEncounters() {
         for (captain in player.captains) {
             if (captain.isIdle) continue
             val ownedShip = player.ownedShips.find { it.id == captain.shipId } ?: continue
@@ -1490,7 +1495,8 @@ class PortRoyaleGame : ApplicationAdapter() {
             maxHull = ship.maxHull,
             minDamage = ship.minDamage,
             maxDamage = ship.maxDamage,
-            spritePath = ship.spritePath
+            spritePath = ship.spritePath,
+            goldReward = ship.goldReward
         )
         combatUI.open(CombatState(player, playerStats, enemyStats))
         Gdx.input.inputProcessor = withToastInput(combatUI.stage)
@@ -1500,7 +1506,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         val target = currentAiTarget
         when (outcome) {
             CombatOutcome.VICTORY -> if (target != null) {
-                player.gold += target.goldReward
+                // The prize was already paid out by CombatState when the enemy sank (it is the
+                // same target.goldReward); adding it again here would double every victory.
                 target.faction?.let { faction ->
                     val loss = if (target.role == AiShipRole.MILITARY) REP_LOSS_MILITARY else REP_LOSS_TRADE
                     player.adjustReputation(faction, loss)

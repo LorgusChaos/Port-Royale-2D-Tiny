@@ -245,6 +245,12 @@ object SaveManager {
 
     fun resolveCaptains(data: GameSaveData): MutableList<Captain> =
         data.captains.map { entry ->
+            // A hold whose good no longer resolves (renamed, removed, or an empty name) has to
+            // drop its unit count and cost with it. A captain left holding cargoUnits > 0 with
+            // no cargoGood is stuck for good: FleetSimulation.attemptSell bails out on the null
+            // good, and attemptBuy is skipped because the hold reads as non-empty - so the
+            // captain sails a permanent loop, never trading again.
+            val cargoGood = Good.entries.find { it.name == entry.cargoGoodName }
             Captain(
                 name = entry.name,
                 tradeSense = entry.tradeSense,
@@ -253,9 +259,9 @@ object SaveManager {
                 portA = entry.portA,
                 portB = entry.portB,
                 headingToB = entry.headingToB,
-                cargoGood = Good.entries.find { it.name == entry.cargoGoodName },
-                cargoUnits = entry.cargoUnits,
-                cargoCostTotal = entry.cargoCostTotal,
+                cargoGood = cargoGood,
+                cargoUnits = if (cargoGood == null) 0 else entry.cargoUnits,
+                cargoCostTotal = if (cargoGood == null) 0 else entry.cargoCostTotal,
                 arrivesAtGameMinutes = entry.arrivesAtGameMinutes,
                 legDurationGameMinutes = if (entry.legDurationGameMinutes > 0f) entry.legDurationGameMinutes else DEFAULT_LEG_MINUTES,
                 lastReport = entry.lastReport,

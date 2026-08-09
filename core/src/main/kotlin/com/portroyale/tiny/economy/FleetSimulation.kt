@@ -249,20 +249,27 @@ object FleetSimulation {
     private fun attemptSell(player: Player, captain: Captain, port: String) {
         val good = captain.cargoGood
         if (good == null || captain.cargoUnits <= 0) return
-        val rep = reputationAt(player, port)
-        val base = MarketState.sellPrice(port, good)
-        val unitPrice = (base * (1f + captain.tradeSense) * sellPriceMultiplier(rep)).toInt().coerceAtLeast(1)
-        val total = unitPrice * captain.cargoUnits
-        if (total < captain.cargoCostTotal) {
+        val sellMultiplier = sellPriceMultiplier(reputationAt(player, port))
+
+        // A hold big enough to move the market cannot all be sold at the price on the board:
+        // every unit floods the port a little further and knocks the next one down. So the
+        // decision is made on what the sale would ACTUALLY return, not on one price times the
+        // unit count - otherwise a captain commits to a sale that looks profitable and lands a
+        // loss, which is exactly what "never lock in a loss" is meant to rule out.
+        val proceeds = MarketState.projectedSellPrices(port, good, captain.cargoUnits)
+            .sumOf { basePrice -> applyCaptainSellTerms(basePrice, captain, sellMultiplier) }
+        if (proceeds < captain.cargoCostTotal) {
             captain.lastReport =
                 "${captain.name} is holding ${captain.cargoUnits}x ${good.displayName} at $port, waiting for a better price."
             return
         }
-        player.gold += total
-        val profit = total - captain.cargoCostTotal
-        captain.totalProfit += profit
+
         repeat(captain.cargoUnits) { MarketState.onSell(port, good) }
-        captain.lastReport = "${captain.name} sold ${captain.cargoUnits}x ${good.displayName} at $port for ${total}g (+${profit}g profit)."
+        player.gold += proceeds
+        val profit = proceeds - captain.cargoCostTotal
+        captain.totalProfit += profit
+        captain.lastReport =
+            "${captain.name} sold ${captain.cargoUnits}x ${good.displayName} at $port for ${proceeds}g (+${profit}g profit)."
         captain.cargoUnits = 0
         captain.cargoGood = null
         captain.cargoCostTotal = 0
@@ -278,19 +285,14 @@ object FleetSimulation {
         val sellMultiplier = sellPriceMultiplier(reputationAt(player, destPort))
 
         var bestGood: Good? = null
-        var bestUnitBuy = 1
         var bestMarginPerUnit = 0
 
         for (good in Good.entries) {
-            val unitBuy = (MarketState.buyPrice(port, good) * (1f + captain.tradeSense) * buyMultiplier)
-                .toInt().coerceAtLeast(1)
-            val unitSell = (MarketState.sellPrice(destPort, good) * (1f + captain.tradeSense) * sellMultiplier)
-                .toInt().coerceAtLeast(1)
-            val margin = unitSell - unitBuy
+            val margin = unitSellPrice(destPort, good, captain, sellMultiplier) -
+                unitBuyPrice(port, good, captain, buyMultiplier)
             if (margin > bestMarginPerUnit) {
                 bestMarginPerUnit = margin
                 bestGood = good
-                bestUnitBuy = unitBuy
             }
         }
 
@@ -299,20 +301,57 @@ object FleetSimulation {
             captain.lastReport = "${captain.name} found nothing worth buying at $port right now - sailing out empty."
             return
         }
-        val affordable = player.gold / bestUnitBuy
-        val qty = minOf(ship.shipType.cargoCapacity, affordable)
-        if (qty <= 0) {
+
+        // Bought a unit at a time, at what each one actually costs once the previous one has
+        // pushed the price up - the same rising price the player pays buying the same volume
+        // through the market screen. Buying a whole hold at the pre-trade price meant a captain
+        // could drain a port's stock to the floor and still pay the untouched price for all of it.
+        //
+        // The load is also sized to what the far end can actually absorb: each unit is checked
+        // against what the Nth sale over there would fetch (the destination's price falls as the
+        // hold is unloaded into it, see MarketState.projectedSellPrices), and buying stops at the
+        // first unit that would not pay for itself. A captain who ignored that would fill the
+        // hold on a margin that only exists for the first few units, then arrive unable to sell
+        // the rest without a loss.
+        val destPrices = MarketState.projectedSellPrices(destPort, good, ship.shipType.cargoCapacity)
+        var units = 0
+        var spent = 0
+        while (units < ship.shipType.cargoCapacity) {
+            val unitBuy = unitBuyPrice(port, good, captain, buyMultiplier)
+            if (player.gold - spent < unitBuy) break
+            if (applyCaptainSellTerms(destPrices[units], captain, sellMultiplier) <= unitBuy) break
+            spent += unitBuy
+            units++
+            MarketState.onBuy(port, good)
+        }
+
+        if (units == 0) {
             captain.lastReport = "${captain.name} couldn't afford to stock up at $port - sailing out empty."
             return
         }
-        val total = bestUnitBuy * qty
-        player.gold -= total
-        repeat(qty) { MarketState.onBuy(port, good) }
+        player.gold -= spent
         captain.cargoGood = good
-        captain.cargoUnits = qty
-        captain.cargoCostTotal = total
-        captain.lastReport = "${captain.name} bought ${qty}x ${good.displayName} at $port for ${total}g."
+        captain.cargoUnits = units
+        captain.cargoCostTotal = spent
+        captain.lastReport = "${captain.name} bought ${units}x ${good.displayName} at $port for ${spent}g."
     }
+
+    /** A captain's own price for one unit. [Captain.tradeSense] pulls the buying price DOWN and
+     *  the selling price UP by the same fraction, so a sharper captain is better at both ends of
+     *  the deal - the reading the stat's name promises. (It used to raise both, which still made
+     *  a high-tradeSense captain more profitable overall, since the margin scaled with it, but
+     *  by having them overpay on the way in - the opposite of trading well.) */
+    private fun unitBuyPrice(port: String, good: Good, captain: Captain, repMultiplier: Float): Int =
+        (MarketState.buyPrice(port, good) * (1f - captain.tradeSense) * repMultiplier).toInt().coerceAtLeast(1)
+
+    private fun unitSellPrice(port: String, good: Good, captain: Captain, repMultiplier: Float): Int =
+        applyCaptainSellTerms(MarketState.sellPrice(port, good), captain, repMultiplier)
+
+    /** The captain's own take on a board price they are selling at - shared with the projected
+     *  prices in [MarketState.projectedSellPrices] so a quote and a real sale are priced the
+     *  same way. */
+    private fun applyCaptainSellTerms(basePrice: Int, captain: Captain, repMultiplier: Float): Int =
+        (basePrice * (1f + captain.tradeSense) * repMultiplier).toInt().coerceAtLeast(1)
 
     private fun reputationAt(player: Player, port: String): Int {
         val faction = Ports.ALL.firstOrNull { it.name == port }?.faction ?: return 0

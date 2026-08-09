@@ -28,16 +28,38 @@ object MarketState {
 
     /** > 1 when the port is short on this good (buying up stock pushes it here); < 1 when
      *  flooded with it. */
-    fun dynamicMultiplier(port: String, good: Good): Float = 1f - stockAt(port, good) * STOCK_SENSITIVITY
+    fun dynamicMultiplier(port: String, good: Good): Float = dynamicFor(stockAt(port, good))
+
+    private fun dynamicFor(stock: Float): Float = 1f - stock * STOCK_SENSITIVITY
 
     fun combinedMultiplier(port: String, good: Good): Float =
-        Market.historicalMultiplier(port, good) * dynamicMultiplier(port, good)
+        combinedFor(port, good, stockAt(port, good))
+
+    private fun combinedFor(port: String, good: Good, stock: Float): Float =
+        Market.historicalMultiplier(port, good) * dynamicFor(stock)
+
+    private fun priceFor(good: Good, combined: Float, spread: Float): Int =
+        (good.basePrice * combined * spread).toInt().coerceAtLeast(1)
 
     fun buyPrice(port: String, good: Good): Int =
-        (good.basePrice * combinedMultiplier(port, good) * BUY_SPREAD).toInt().coerceAtLeast(1)
+        priceFor(good, combinedMultiplier(port, good), BUY_SPREAD)
 
     fun sellPrice(port: String, good: Good): Int =
-        (good.basePrice * combinedMultiplier(port, good) * SELL_SPREAD).toInt().coerceAtLeast(1)
+        priceFor(good, combinedMultiplier(port, good), SELL_SPREAD)
+
+    /** What each of [units] successive sales here would fetch, in order - every sale floods the
+     *  port a little further (see [onSell]), so each price is a shade below the one before it.
+     *  Nothing is actually sold; this is how a seller can find out what a bulk sale would REALLY
+     *  return before committing to it, rather than reading one price off the board and assuming
+     *  the whole hold clears at it. See FleetSimulation.attemptSell/attemptBuy. */
+    fun projectedSellPrices(port: String, good: Good, units: Int): List<Int> {
+        var stock = stockAt(port, good)
+        return List(units) {
+            val price = priceFor(good, combinedFor(port, good, stock), SELL_SPREAD)
+            stock = (stock + TRADE_IMPACT).coerceIn(-1f, 1f)
+            price
+        }
+    }
 
     /** Buying a good depletes the port's stock of it (price rises); selling floods it (price
      *  falls) - the only two things that move stock other than the passive drift in [update]. */

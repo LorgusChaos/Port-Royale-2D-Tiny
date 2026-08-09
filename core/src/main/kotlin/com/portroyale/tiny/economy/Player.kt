@@ -19,8 +19,6 @@ class Player(var gold: Int = 10000) {
     var ship: ShipType = ShipTypes.SLOOP
         private set
 
-    val condition = ShipCondition(ship.maxHull)
-
     /** Every hull the player owns, including the one currently being sailed (see [activeShipId]
      *  and OwnedShip) - a fleet roster, distinct from [ship] which stays a plain ShipType/
      *  ShipCondition pair so the many existing call sites reading player.ship didn't need to
@@ -28,6 +26,19 @@ class Player(var gold: Int = 10000) {
     val ownedShips = mutableListOf(OwnedShip(1, "Sloop", ShipTypes.SLOOP, ""))
     var activeShipId: Int = 1
         private set
+
+    /** Stands in for [condition] only while [activeShipId] points at no real hull - i.e. after
+     *  [wreckShip], which leaves the player with no OwnedShip to carry it. */
+    private val wreckCondition = ShipCondition(ShipTypes.WRECK.maxHull)
+
+    /** Wear and upgrades of the hull being sailed right now - deliberately a *view* onto the
+     *  active OwnedShip's own ShipCondition, not a second object holding the same kind of data.
+     *  While the two were separate, upgrades bought here never reached the hull (so a captain
+     *  later given that ship sailed it unupgraded), and boarding reset them to zero while also
+     *  silently handing out a free full repair and hull scrub. One condition per hull means the
+     *  two can no longer disagree - the invariant OwnedShip's own docs already claimed. */
+    val condition: ShipCondition
+        get() = ownedShips.find { it.id == activeShipId }?.condition ?: wreckCondition
 
     val cargo = linkedMapOf<Good, Int>().apply {
         Good.entries.forEach { put(it, 0) }
@@ -76,7 +87,9 @@ class Player(var gold: Int = 10000) {
     private fun nextShipId(): Int = (ownedShips.maxOfOrNull { it.id } ?: 0) + 1
 
     /** Buys a new hull and boards it immediately - the ship being left behind is NOT discarded,
-     *  it docks here instead (see FleetDockUI for renaming/re-crewing it later). */
+     *  it docks here instead (see FleetDockUI for renaming/re-crewing it later). The new hull
+     *  arrives pristine because it is a brand new OwnedShip carrying its own fresh condition,
+     *  not because anything is reset here. */
     fun buyShip(shipType: ShipType, name: String, currentPort: String) {
         gold -= shipType.price
         ownedShips.find { it.id == activeShipId }?.dockedAt = currentPort
@@ -84,22 +97,31 @@ class Player(var gold: Int = 10000) {
         ownedShips.add(newShip)
         activeShipId = newShip.id
         ship = shipType
-        condition.resetFor(shipType.maxHull)
     }
 
+    /** Whether the hold would still fit if the player moved onto this class of ship - see
+     *  [canBoardShip]. Exposed so the dock can say WHY a swap is refused. */
+    fun cargoFitsOn(shipType: ShipType): Boolean = cargoUsed <= shipType.cargoCapacity
+
     /** Swaps which owned ship the player is actively sailing - only valid for a ship idle and
-     *  docked at [currentPort] (see FleetDockUI). The ship being left behind docks here in turn. */
+     *  docked at [currentPort] (see FleetDockUI), and only when the hold actually fits: cargo
+     *  lives on the player, not the hull, so boarding a smaller ship with a full hold would
+     *  otherwise leave more cargo aboard than the ship can carry. Refusing is deliberate -
+     *  quietly throwing the excess overboard would destroy goods the player paid for. */
     fun canBoardShip(shipId: Int, currentPort: String): Boolean {
         if (shipId == activeShipId) return false
         val target = ownedShips.find { it.id == shipId } ?: return false
-        return target.dockedAt == currentPort
+        if (target.dockedAt != currentPort) return false
+        return cargoFitsOn(target.shipType)
     }
+
+    /** Boards [shipId], carrying that hull's OWN wear and upgrades with it - see [condition].
+     *  Nothing is reset: a battered ship is still battered, an upgraded one still upgraded. */
     fun boardShip(shipId: Int, currentPort: String) {
         val target = ownedShips.find { it.id == shipId } ?: return
         ownedShips.find { it.id == activeShipId }?.dockedAt = currentPort
         activeShipId = target.id
         ship = target.shipType
-        condition.resetFor(target.shipType.maxHull)
     }
 
     fun canRenameShip(shipId: Int): Boolean = ownedShips.any { it.id == shipId }
@@ -118,7 +140,7 @@ class Player(var gold: Int = 10000) {
         ownedShips.removeAll { it.id == activeShipId }
         activeShipId = -1
         ship = ShipTypes.WRECK
-        condition.resetFor(ship.maxHull)
+        wreckCondition.resetFor(ship.maxHull)
     }
 
     fun canUpgradeCannons(): Boolean = condition.cannonUpgradeCost()?.let { gold >= it } ?: false
@@ -187,7 +209,8 @@ class Player(var gold: Int = 10000) {
         cargo[good] = (cargo[good] ?: 0) + 1
     }
 
-    fun canStoreGold(portName: String, amount: Int): Boolean = gold >= amount
+    fun canStoreGold(portName: String, amount: Int): Boolean =
+        warehouses[portName] != null && gold >= amount
     fun storeGold(portName: String, amount: Int) {
         val warehouse = warehouses[portName] ?: return
         gold -= amount
@@ -234,25 +257,28 @@ class Player(var gold: Int = 10000) {
     fun reset() {
         gold = 10000
         ship = ShipTypes.SLOOP
-        condition.resetFor(ship.maxHull)
         Good.entries.forEach { cargo[it] = 0 }
         Faction.entries.forEach { reputation[it] = 0 }
         warehouses.clear()
         loan = null
         captains.clear()
         ownedShips.clear()
+        // The replacement Sloop brings its own pristine condition, which [condition] then
+        // resolves to - there is nothing left over from the old hull to reset.
         ownedShips.add(OwnedShip(1, "Sloop", ShipTypes.SLOOP, ""))
         activeShipId = 1
+        wreckCondition.resetFor(ShipTypes.WRECK.maxHull)
     }
 
     /** Overwrites state from a loaded save, bypassing the buy/sell gold accounting. Ship
      *  condition (hull/fouling/upgrades) and reputation are restored separately by the caller,
      *  since they come from the same save data but aren't part of this method's existing
-     *  parameter shape. */
+     *  parameter shape. Condition specifically must be restored AFTER [loadFleet] - it now
+     *  lives on the active OwnedShip (see [condition]), which does not exist until the roster
+     *  is in place. */
     fun loadState(gold: Int, ship: ShipType, cargo: Map<Good, Int>) {
         this.gold = gold
         this.ship = ship
-        condition.resetFor(ship.maxHull)
         Good.entries.forEach { this.cargo[it] = cargo[it] ?: 0 }
         Faction.entries.forEach { reputation[it] = 0 }
     }

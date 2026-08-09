@@ -16,7 +16,12 @@ import kotlin.test.assertTrue
  */
 class FleetCombatResolverTest {
 
-    private fun enemy(maxHull: Int = 50, minDamage: Int = 5, maxDamage: Int = 10) = AiShip(
+    private fun enemy(
+        maxHull: Int = 50,
+        minDamage: Int = 5,
+        maxDamage: Int = 10,
+        goldReward: Int = 100
+    ) = AiShip(
         role = AiShipRole.PIRATE,
         faction = null,
         spritePath = "e.png",
@@ -25,7 +30,7 @@ class FleetCombatResolverTest {
         maxHull = maxHull,
         minDamage = minDamage,
         maxDamage = maxDamage,
-        goldReward = 100,
+        goldReward = goldReward,
         tier = 3,
         position = Vector2.Zero.cpy()
     )
@@ -47,12 +52,22 @@ class FleetCombatResolverTest {
     }
 
     @Test
-    fun `a victory pays out salvage within the shared reward band`() {
-        val outcome = resolve(caution = 0.2f, enemy = enemy(maxHull = 1, minDamage = 0, maxDamage = 0))
-        assertTrue(
-            outcome.goldReward in MIN_VICTORY_REWARD..MAX_VICTORY_REWARD,
-            "salvage was ${outcome.goldReward}"
+    fun `a victory pays out the opponent's own worth`() {
+        val outcome = resolve(
+            caution = 0.2f,
+            enemy = enemy(maxHull = 1, minDamage = 0, maxDamage = 0, goldReward = 265)
         )
+        assertEquals(FleetCombatResult.VICTORY, outcome.result)
+        assertEquals(265, outcome.goldReward)
+    }
+
+    @Test
+    fun `a captain is paid the same prize the player would collect`() {
+        // The two combat paths share their formulas on purpose; the prize is no exception, so a
+        // captain sinking a warship is not paid like they sank a fishing boat.
+        val weak = resolve(caution = 0.2f, enemy = enemy(maxHull = 1, minDamage = 0, maxDamage = 0, goldReward = 120))
+        val tough = resolve(caution = 0.2f, enemy = enemy(maxHull = 1, minDamage = 0, maxDamage = 0, goldReward = 250))
+        assertTrue(tough.goldReward > weak.goldReward)
     }
 
     @Test

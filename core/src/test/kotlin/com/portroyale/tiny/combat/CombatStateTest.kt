@@ -24,7 +24,8 @@ class CombatStateTest {
         ShipCombatant("Sloop", ShipTypes.SLOOP.maxHull, ShipTypes.SLOOP.minDamage, ShipTypes.SLOOP.maxDamage, "p.png")
 
     /** An enemy that cannot damage the player - the only reachable outcome is victory. */
-    private fun harmlessEnemy(maxHull: Int = 1) = ShipCombatant("Straw Man", maxHull, 0, 0, "e.png")
+    private fun harmlessEnemy(maxHull: Int = 1, goldReward: Int = 120) =
+        ShipCombatant("Straw Man", maxHull, 0, 0, "e.png", goldReward)
 
     /** An enemy the player cannot sink, hitting hard enough to end things in one connected shot. */
     private fun unbeatableEnemy() = ShipCombatant("Leviathan", 100_000, 1000, 1000, "e.png")
@@ -74,17 +75,43 @@ class CombatStateTest {
     }
 
     @Test
-    fun `sinking the enemy wins the fight and pays out salvage`() {
+    fun `sinking the enemy wins the fight and pays out that ship's own worth`() {
         val player = Player()
         val goldBefore = player.gold
-        val combat = CombatState(player, playerStats(), harmlessEnemy())
+        val combat = CombatState(player, playerStats(), harmlessEnemy(goldReward = 265))
 
         repeat(rounds) { if (!combat.isOver) combat.playerAttack() }
 
         assertEquals(CombatOutcome.VICTORY, combat.outcome)
         assertEquals(0, combat.enemyHull)
-        val reward = player.gold - goldBefore
-        assertTrue(reward in MIN_VICTORY_REWARD..MAX_VICTORY_REWARD, "salvage was $reward")
+        assertEquals(265, player.gold - goldBefore, "the prize must be the opponent's own reward")
+    }
+
+    @Test
+    fun `a tougher opponent is worth more than a weak one`() {
+        // The whole point of goldReward: sinking a tier-5 pirate should not pay the same as
+        // running down a lightly armed trader.
+        fun prizeFor(reward: Int): Int {
+            val player = Player()
+            val goldBefore = player.gold
+            val combat = CombatState(player, playerStats(), harmlessEnemy(goldReward = reward))
+            repeat(rounds) { if (!combat.isOver) combat.playerAttack() }
+            assertEquals(CombatOutcome.VICTORY, combat.outcome)
+            return player.gold - goldBefore
+        }
+        assertTrue(prizeFor(265) > prizeFor(120))
+    }
+
+    @Test
+    fun `the salvage line quotes the amount actually paid`() {
+        val player = Player()
+        val goldBefore = player.gold
+        val combat = CombatState(player, playerStats(), harmlessEnemy(goldReward = 265))
+
+        repeat(rounds) { if (!combat.isOver) combat.playerAttack() }
+
+        val paid = player.gold - goldBefore
+        assertTrue(combat.log.contains("$paid gold"), "log said '${combat.log}' but paid $paid")
     }
 
     @Test

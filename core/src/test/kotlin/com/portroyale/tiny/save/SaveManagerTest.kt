@@ -249,6 +249,40 @@ class SaveManagerTest {
     }
 
     @Test
+    fun `a hold whose good no longer exists is emptied, not left as a phantom`() {
+        // A captain with cargoUnits > 0 and no cargoGood is finished: attemptSell bails on the
+        // null good and attemptBuy is skipped because the hold reads as full, so they sail their
+        // route forever without ever trading again. The units have to go with the good.
+        val data = GameSaveData().apply {
+            captains.add(
+                CaptainSaveEntry().apply {
+                    name = "Ghost"
+                    shipId = 1
+                    cargoGoodName = "GUNPOWDER"
+                    cargoUnits = 30
+                    cargoCostTotal = 4000
+                }
+            )
+        }
+
+        val captain = SaveManager.resolveCaptains(data).single()
+
+        assertNull(captain.cargoGood)
+        assertEquals(0, captain.cargoUnits, "phantom cargo would strand this captain permanently")
+        assertEquals(0, captain.cargoCostTotal)
+    }
+
+    @Test
+    fun `a hold with units but a blank good name is emptied too`() {
+        val data = GameSaveData().apply {
+            captains.add(CaptainSaveEntry().apply { cargoGoodName = ""; cargoUnits = 12; cargoCostTotal = 900 })
+        }
+        val captain = SaveManager.resolveCaptains(data).single()
+        assertEquals(0, captain.cargoUnits)
+        assertEquals(0, captain.cargoCostTotal)
+    }
+
+    @Test
     fun `a save written before leg durations existed gets a usable one`() {
         // legProgress divides by this, so a zero would put a NaN on the map.
         val data = GameSaveData().apply {

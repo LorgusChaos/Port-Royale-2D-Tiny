@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.4.5.4] - 2026-08-09
+
+### Fixed
+- Upgrades bought for a ship (cannons, oars, sails) no longer vanish the moment you sail a
+  different one. The player's hull condition and the ship's own condition were two separate
+  objects: upgrades landed on one, the hull kept the other, and swapping ships at the docks reset
+  the first to zero. They are now one object per hull, so upgrades, damage and fouling belong to
+  the ship that earned them and stay there. A captain given one of your upgraded ships now
+  actually sails it upgraded, instead of at stock speed and firepower.
+- Swapping ships at the docks and back no longer repairs and scrubs a battered hull for free. The
+  same reset that wiped upgrades also restored full hull and cleared fouling, which quietly
+  undercut the shipyard's repair and cleaning fees entirely.
+- Sinking a tougher opponent now pays better than sinking a weak one for hired captains too - a
+  captain's prize was a flat random sum, so a tier-5 pirate was worth the same as a lightly armed
+  trader. Both the player's own fights and a captain's now pay out the defeated ship's own worth.
+- A victory no longer pays twice. The combat screen awarded a random salvage sum and the world
+  then added the enemy's reward on top, so the amount that reached the purse never matched the
+  amount the victory message quoted. There is now one payout, and the message states it.
+- Hired captains sharp enough to read a market (`tradeSense`) now buy *cheaper* as well as sell
+  dearer. The buying price used to move the wrong way, so a good captain overpaid on the way in
+  and only came out ahead because the selling side made up for it.
+- Boarding a smaller ship with a hold that will not fit is now refused, with the dock saying why,
+  instead of leaving you carrying 160 units of cargo in a 50-unit hold.
+- Storing gold is no longer offered in a port where you own no warehouse (the action silently did
+  nothing).
+- A saved captain carrying a good the game no longer recognises now has that hold emptied along
+  with it. Left as-is, the captain could never sell (no good) and never restock (the hold read as
+  full), and would sail their route forever without trading again.
+
+### Changed
+- Hired captains now trade at honest prices. A captain used to buy or sell an entire hold at the
+  price on the board, then move the market by the full amount afterwards - so one captain could
+  drain a port's stock to the floor and still pay the untouched price for all of it, something no
+  player buying through the market screen could do. Each unit is now priced as it is traded.
+- Following from that, captains size a load to what the route can actually absorb rather than
+  always filling the hold, and decide whether to sell on what the sale would really fetch rather
+  than on a single quoted price. A weaker captain now buys a smaller, sensible load instead of
+  overbuying into cargo they cannot unload at a profit. Net effect: profit per leg is lower than
+  before, and the gap between a sharp captain and a poor one is much wider - hiring a good one
+  matters now.
+
+### Internal
+- Added a unit test suite (306 tests) for the pure game logic: economy, ship condition and
+  upgrades, combat maths, fleet simulation, save compatibility, and map pathfinding. The
+  Scene2D/rendering layer is deliberately not covered - it needs a live GL context and is checked
+  by running the game.
+- Added CI (`.github/workflows/release.yml`): tests run on every push to `main`, and bumping
+  `appVersion` additionally builds the Windows exe, tags the commit and publishes a GitHub
+  Release with the portable zip and the jar.
+- Added a real `.gitignore` covering build output, packaged distributables, IDE files and logs.
+
 ## [0.4.5.3] - 2026-08-08
 
 ### Added

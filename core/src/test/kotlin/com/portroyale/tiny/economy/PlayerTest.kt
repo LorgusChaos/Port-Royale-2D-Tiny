@@ -153,6 +153,133 @@ class PlayerTest {
         assertEquals("Nassau", player.ownedShips.first { it.id == cutterId }.dockedAt)
     }
 
+    // --- the hull carries its own condition (regression: upgrades used to vanish on a swap) ---
+
+    @Test
+    fun `an upgrade bought on deck reaches the hull itself`() {
+        // Upgrades used to land on a Player-level condition the hull never saw, so a captain
+        // later given this ship sailed it as if it were stock.
+        val player = freshPlayer()
+        player.upgradeSails()
+        player.upgradeCannons()
+
+        val hull = player.ownedShips.first { it.id == player.activeShipId }
+        assertEquals(1, hull.condition.sailLevel)
+        assertEquals(1, hull.condition.cannonLevel)
+        assertEquals(player.effectiveSpeed, hull.effectiveSpeed, 0.0001f)
+        assertEquals(player.effectiveMaxDamage, hull.effectiveMaxDamage)
+    }
+
+    @Test
+    fun `upgrades survive sailing another ship and coming back`() {
+        val player = Player(gold = 100_000)
+        val sloopId = player.activeShipId
+        player.buyShip(ShipTypes.GALLEON, "Flagship", "Havana")
+        val galleonId = player.activeShipId
+        player.upgradeCannons(); player.upgradeOars(); player.upgradeSails()
+
+        player.boardShip(sloopId, "Havana")
+        player.boardShip(galleonId, "Havana")
+
+        assertEquals(1, player.condition.cannonLevel, "paid-for upgrades must not evaporate")
+        assertEquals(1, player.condition.oarLevel)
+        assertEquals(1, player.condition.sailLevel)
+    }
+
+    @Test
+    fun `each hull keeps its own upgrades`() {
+        val player = Player(gold = 100_000)
+        val sloopId = player.activeShipId
+        player.buyShip(ShipTypes.GALLEON, "Flagship", "Havana")
+        player.upgradeCannons()
+
+        player.boardShip(sloopId, "Havana")
+
+        assertEquals(0, player.condition.cannonLevel, "the sloop was never upgraded")
+    }
+
+    @Test
+    fun `swapping ships is not a free repair`() {
+        // Boarding used to reset the hull to pristine, so a round trip through another ship
+        // repaired and scrubbed it for nothing - undercutting repairCost and cleanCost entirely.
+        val player = Player(gold = 100_000)
+        val sloopId = player.activeShipId
+        player.buyShip(ShipTypes.GALLEON, "Flagship", "Havana")
+        val galleonId = player.activeShipId
+        player.condition.currentHull = 40
+        player.condition.fouling = 0.8f
+
+        player.boardShip(sloopId, "Havana")
+        player.boardShip(galleonId, "Havana")
+
+        assertEquals(40, player.condition.currentHull, "damage must still be there")
+        assertEquals(0.8f, player.condition.fouling, "fouling must still be there")
+        assertTrue(player.canRepair(), "and it must still cost gold to put right")
+    }
+
+    @Test
+    fun `a newly bought hull is pristine`() {
+        val player = Player(gold = 100_000)
+        player.condition.currentHull = 5
+        player.condition.fouling = 1f
+        player.upgradeCannons()
+
+        player.buyShip(ShipTypes.BARQUE, "Fresh", "Havana")
+
+        assertEquals(ShipTypes.BARQUE.maxHull, player.condition.currentHull)
+        assertEquals(0f, player.condition.fouling)
+        assertEquals(0, player.condition.cannonLevel)
+    }
+
+    @Test
+    fun `a wrecked captain still has a condition to read`() {
+        // activeShipId points at nothing after a wreck, so condition falls back rather than
+        // crashing whatever HUD or combat screen asks for the hull.
+        val player = freshPlayer()
+        player.wreckShip()
+        assertEquals(ShipTypes.WRECK.maxHull, player.condition.currentHull)
+        assertEquals(0, player.condition.cannonLevel)
+    }
+
+    // --- boarding with a hold that will not fit ---
+
+    @Test
+    fun `boarding a smaller ship is refused while the hold is too full`() {
+        val player = Player(gold = 100_000)
+        val sloopId = player.activeShipId
+        player.buyShip(ShipTypes.GALLEON, "Flagship", "Havana")
+        repeat(ShipTypes.SLOOP.cargoCapacity + 1) { player.buy(Good.WOOD, 1) }
+
+        assertFalse(player.cargoFitsOn(ShipTypes.SLOOP))
+        assertFalse(player.canBoardShip(sloopId, "Havana"), "the cargo would not fit")
+    }
+
+    @Test
+    fun `boarding a smaller ship is allowed once the hold fits`() {
+        val player = Player(gold = 100_000)
+        val sloopId = player.activeShipId
+        player.buyShip(ShipTypes.GALLEON, "Flagship", "Havana")
+        repeat(ShipTypes.SLOOP.cargoCapacity) { player.buy(Good.WOOD, 1) }
+
+        assertTrue(player.cargoFitsOn(ShipTypes.SLOOP), "exactly full still fits")
+        assertTrue(player.canBoardShip(sloopId, "Havana"))
+
+        player.boardShip(sloopId, "Havana")
+        assertTrue(player.cargoUsed <= player.cargoCapacity, "the hold must never exceed the hull")
+    }
+
+    @Test
+    fun `moving up to a bigger ship is never blocked by cargo`() {
+        val player = Player(gold = 100_000)
+        player.buyShip(ShipTypes.GALLEON, "Flagship", "Havana")
+        val galleonId = player.activeShipId
+        val sloopId = player.ownedShips.first { it.id != galleonId }.id
+        player.boardShip(sloopId, "Havana")
+        repeat(ShipTypes.SLOOP.cargoCapacity) { player.buy(Good.WOOD, 1) }
+
+        assertTrue(player.canBoardShip(galleonId, "Havana"))
+    }
+
     @Test
     fun `renaming a ship ignores a blank name`() {
         val player = freshPlayer()
@@ -404,6 +531,18 @@ class PlayerTest {
     }
 
     @Test
+    fun `gold cannot be stored in a port with no warehouse`() {
+        // storeGold silently no-ops without a warehouse, so canStoreGold agreeing that it is
+        // possible would leave the UI offering an action that does nothing.
+        val player = freshPlayer()
+        assertFalse(player.canStoreGold("Havana", 100), "there is no warehouse in Havana")
+
+        player.buyWarehouse("Havana")
+        assertTrue(player.canStoreGold("Havana", 100))
+        assertFalse(player.canStoreGold("Nassau", 100), "still nothing in Nassau")
+    }
+
+    @Test
     fun `warehouse gold survives losing the ship`() {
         // The stated point of a warehouse: a hedge against being cleaned out by pirates.
         val player = freshPlayer()
@@ -539,7 +678,20 @@ class PlayerTest {
         assertSame(ShipTypes.BRIGANTINE, player.ship)
         assertEquals(12, player.cargo[Good.RUM])
         assertEquals(0, player.cargo[Good.SUGAR], "goods missing from the save load as empty")
+    }
+
+    @Test
+    fun `the hull's own condition comes from the fleet roster, not from loadState`() {
+        // Condition lives on the active OwnedShip now, so it arrives with loadFleet - which is
+        // why PortRoyaleGame.loadGame restores the saved condition AFTER the roster is in place.
+        val player = freshPlayer()
+        player.loadState(777, ShipTypes.BRIGANTINE, emptyMap())
+        player.loadFleet(listOf(OwnedShip(3, "Sea Hawk", ShipTypes.BRIGANTINE, "")), activeShipId = 3)
+
         assertEquals(ShipTypes.BRIGANTINE.maxHull, player.condition.currentHull)
+
+        player.condition.currentHull = 55
+        assertEquals(55, player.ownedShips.single().condition.currentHull, "the write must reach the hull")
     }
 
     @Test

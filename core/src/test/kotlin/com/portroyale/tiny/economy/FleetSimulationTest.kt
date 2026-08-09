@@ -407,12 +407,39 @@ class FleetSimulationTest {
         FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
         val captain = player.captains.single()
         val goldAfterHire = player.gold
+        val outboundCost = captain.cargoCostTotal
 
         FleetSimulation.update(player, captain.arrivesAtGameMinutes, anyDistance)
 
         assertTrue(captain.totalProfit > 0, "a tobacco run from Havana to Portobelo should clear a profit")
-        assertTrue(player.gold > goldAfterHire, "the proceeds never reached the purse")
-        assertNotEquals(Good.TOBACCO, captain.cargoGood, "the tobacco should have been sold and the hold restocked")
+        // The purse is not simply bigger afterwards - the proceeds land in it and are then partly
+        // spent restocking for the return leg. What must balance is the whole round trip: gold
+        // plus what the new hold cost, less what the old one cost, is the starting purse plus the
+        // profit booked. If a single coin went missing this would not add up.
+        assertEquals(
+            goldAfterHire + captain.totalProfit,
+            player.gold + captain.cargoCostTotal - outboundCost,
+            "the money did not balance across the leg"
+        )
+    }
+
+    @Test
+    fun `a hold big enough to move the market realises less than it was quoted`() {
+        // Selling floods the port as it goes, so the last unit fetches less than the first. The
+        // quote is still what the captain decides on - it just is not what a bulk sale returns.
+        val (player, sloopId) = playerWithSpareSloop()
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+        val good = captain.cargoGood!!
+        val units = captain.cargoUnits
+        val quotedPerUnit = MarketState.sellPrice(portB, good)
+        val goldBefore = player.gold
+
+        FleetSimulation.update(player, captain.arrivesAtGameMinutes, anyDistance)
+
+        val proceeds = player.gold - goldBefore + captain.cargoCostTotal
+        assertTrue(proceeds < quotedPerUnit * units, "a bulk sale should not fetch the untouched price")
+        assertTrue(captain.totalProfit > 0, "it should still have been worth making")
     }
 
     @Test
@@ -430,6 +457,36 @@ class FleetSimulationTest {
         assertTrue(captain.totalProfit > 0)
         assertTrue(captain.lastReport.contains("bought"), captain.lastReport)
         assertFalse(captain.lastReport.contains("profit"), "if this now passes, the report order was fixed")
+    }
+
+    @Test
+    fun `a sharper captain buys cheaper and sells dearer than a duller one`() {
+        // tradeSense pulls the buy price down and the sell price up, so it reads the way its
+        // name promises at both ends of the deal - not just in the net margin.
+        fun profitOver(tradeSense: Float): Int {
+            MarketState.reset()
+            val (player, sloopId) = playerWithSpareSloop()
+            val c = Captain(name = "C", tradeSense = tradeSense, caution = 0.5f)
+            FleetSimulation.hire(player, c, sloopId, portA, portB, 0f, anyDistance)
+            repeat(6) { FleetSimulation.update(player, c.arrivesAtGameMinutes, anyDistance) }
+            return c.totalProfit
+        }
+        assertTrue(profitOver(0.10f) > profitOver(0f), "a sharp captain should out-earn an average one")
+        assertTrue(profitOver(0f) > profitOver(-0.10f), "a dull captain should under-earn an average one")
+    }
+
+    @Test
+    fun `a captain pays the rising price for a big load, not the untouched one`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        val quotedPerUnit = MarketState.buyPrice(portA, Good.TOBACCO)
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+
+        assertEquals(Good.TOBACCO, captain.cargoGood)
+        assertTrue(
+            captain.cargoCostTotal > quotedPerUnit * captain.cargoUnits,
+            "buying out a port's stock should cost more than the pre-trade price per unit"
+        )
     }
 
     @Test

@@ -98,6 +98,12 @@ class FleetDockUI(private val player: Player, private val onBack: () -> Unit) {
             val statusText = when {
                 isActive -> "Captain: You"
                 captain != null -> "Captain: ${captain.name}"
+                // Boarding is refused rather than silently dumping the excess overboard (see
+                // Player.canBoardShip), so the hold is the one refusal the player can act on -
+                // sell or warehouse the difference and the swap opens up.
+                !player.cargoFitsOn(ship.shipType) ->
+                    "Idle - your ${player.cargoUsed} units of cargo will not fit in this " +
+                        "${ship.shipType.cargoCapacity}-unit hold"
                 else -> "Idle - no captain (hire or reassign one at the Tavern)"
             }
 

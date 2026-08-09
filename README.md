@@ -3,7 +3,7 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5.3 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.5.4 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
 > ships that actually hunt down a target they've spotted, a small hired fleet of captains who
 > fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
@@ -13,7 +13,7 @@ combat, deliberately kept small in scope for a solo/hobby project.
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5.3
+## What's here in v0.4.5.4
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -123,6 +123,18 @@ From the repository root:
 
 First run downloads Gradle and dependencies, so it can take a minute.
 
+### Tests
+
+```
+./gradlew :core:test        # Linux/macOS
+.\gradlew.bat :core:test    # Windows
+```
+
+Covers the pure game logic - economy, ship condition and upgrades, combat maths, the fleet
+simulation, save compatibility, and map pathfinding. The Scene2D/rendering layer is deliberately
+left out: it needs a live GL context, and is checked by actually running the game. The same suite
+runs on every push to `main` (see `.github/workflows/release.yml`).
+
 ## Building a distributable build
 
 ```
@@ -133,6 +145,11 @@ First run downloads Gradle and dependencies, so it can take a minute.
 Produces a single self-contained runnable JAR at `lwjgl3/build/libs/port-royale-2d-tiny-<version>.jar`
 (all dependencies and platform natives bundled in). Anyone with a JDK 17+ can run it directly -
 `java -jar port-royale-2d-tiny-<version>.jar` - no Gradle or source checkout needed.
+
+Released builds are produced by CI rather than by hand: bumping `appVersion` in
+`gradle.properties` on `main` runs the tests, packages a Windows exe with a bundled JRE
+(`jpackage`), tags the commit and publishes both the portable zip and the jar as a GitHub
+Release.
 
 ## Controls
 

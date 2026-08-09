@@ -14,8 +14,6 @@ const val MAX_FLEE_CHANCE = 0.85f
 const val MISS_CHANCE = 0.18f
 const val EVASION_PER_MANEUVER = 0.002f
 const val MAX_ENEMY_MISS_CHANCE = 0.5f
-const val MIN_VICTORY_REWARD = 50
-const val MAX_VICTORY_REWARD = 150
 
 /** One turn-based encounter: player picks Fire/Flee each round, enemy always fires back unless
  *  the encounter already ended. Both sides can miss; the player's effective maneuverability
@@ -69,7 +67,11 @@ class CombatState(
         }
 
         if (enemyHull <= 0) {
-            val reward = Random.nextInt(MIN_VICTORY_REWARD, MAX_VICTORY_REWARD + 1)
+            // The prize is the opponent's own worth (see ShipCombatant.goldReward), so a tier-5
+            // pirate galleon pays what it is worth rather than the same flat sum a weak trader
+            // would. This is the ONLY place a victory pays out - PortRoyaleGame.finishCombat
+            // reports this number, it does not add a second one on top.
+            val reward = enemy.goldReward
             player.gold += reward
             outcome = CombatOutcome.VICTORY
             log = "$message ${enemy.name} is sunk! You salvage $reward gold."
