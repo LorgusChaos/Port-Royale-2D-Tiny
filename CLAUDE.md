@@ -8,6 +8,7 @@ Windows-first. Current version: see `gradle.properties` (`appVersion`).
 ```
 export JAVA_HOME="C:\Program Files\Eclipse Adoptium\jdk-17.0.20.8-hotspot"
 ./gradlew.bat -q :core:compileKotlin :lwjgl3:compileKotlin   # compile check
+./gradlew.bat -q :core:test                                   # unit tests (run after EVERY change)
 ./gradlew.bat -q :lwjgl3:run                                  # launch (run in background)
 ./gradlew.bat -q :lwjgl3:shadowJar                            # distributable: lwjgl3/build/libs/port-royale-2d-tiny-<version>.jar
 ```
@@ -37,7 +38,17 @@ splits them so review attention goes where it's expensive.
 
 ## Testing discipline
 
-1. Compile check first (`compileKotlin` on both modules).
+0. **Run `:core:test` after every change, without being asked.** ~287 JUnit 5 tests live in
+   `core/src/test/kotlin`, mirroring the main package layout. They cover the pure logic only —
+   economy (Market/MarketState/Player/Warehouse/Loan), ships (condition, upgrades, effective
+   stats), combat (CombatState, FleetCombatResolver), fleet (Captain, FleetSimulation), world
+   (GameClock, GameSpeed, MapProjection, Ports, AiShipFactory, WorldMap pathfinding), and
+   SaveManager's `resolve*` save-compat functions. The Scene2D/rendering layer is deliberately
+   NOT covered — it needs a live GL context, and is verified by actually running the game.
+   Failures print with `exceptionFormat "full"`; per-test detail also lands in
+   `core/build/test-results/test/*.xml`. Gradle caches a green run, so use `--rerun-tasks` to
+   force a re-execution.
+1. Compile check (`compileKotlin` on both modules).
 2. Launch `:lwjgl3:run` in the background, redirecting output to a log file.
 3. Grep-filter the log for `FAILED|Exception|Error|error:` (e.g. via Monitor) rather than reading
    the full Gradle output.
@@ -49,6 +60,25 @@ splits them so review attention goes where it's expensive.
    the user to answer than just showing you.
 6. Batch several related small tweaks (e.g. "also change X, Y, Z") into one compile+launch+review
    cycle where feasible, instead of one full rebuild-and-relaunch round trip per tiny change.
+7. New game logic ships with tests in the same change. New *rendering* code does not — see 0.
+
+### Writing tests here: three traps
+
+- **`MarketState`, `GameClock` and `GameSpeed` are singletons with process-wide mutable state.**
+  Any test class that touches a price, a date or the speed multiplier needs a `@BeforeTest` that
+  calls `.reset()`, or trades from one test leak into another's prices and the failure looks like
+  a logic bug in whichever test happened to run second.
+- **Combat rolls the shared `kotlin.random.Random`, which can't be seeded.** Don't assert on a
+  single roll. Either rig the opponent so only one outcome is reachable (a 0-damage enemy can
+  never win; a 100000-hull enemy can never lose; a captain starting below its caution threshold
+  can never fire, since hull only falls), or size the sample so the assertion sits ~8 standard
+  errors from the boundary. `CombatStateTest` and `FleetCombatResolverTest` show both.
+- **`Captain.rollCandidate()` randomizes `tradeSense`**, which moves every price that captain
+  pays or receives. Build captains by hand (`Captain(name, tradeSense = 0f, caution = …)`) in any
+  test that asserts on gold or cargo.
+
+`Pixmap` (and so `WorldMap`) needs libGDX natives but no GL context — `GdxNativesLoader.load()`
+in a `@BeforeTest` is enough, hence `gdx-platform:natives-desktop` as a `testRuntimeOnly` dep.
 
 ## Release workflow
 

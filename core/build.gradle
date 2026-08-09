@@ -10,4 +10,25 @@ repositories {
 dependencies {
     api "com.badlogicgames.gdx:gdx:$gdxVersion"
     api "com.badlogicgames.gdx:gdx-freetype:$gdxVersion"
+
+    testImplementation platform("org.junit:junit-bom:5.10.2")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testImplementation "org.jetbrains.kotlin:kotlin-test-junit5:$kotlinVersion"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    // WorldMapTest builds a real Pixmap, which is backed by libGDX's native gdx2d code. Loading
+    // those natives (GdxNativesLoader.load(), see WorldMapTest) needs no GL context and no window,
+    // so pathfinding stays testable headlessly - hence natives on the TEST classpath only; the
+    // core module itself must stay backend-agnostic.
+    testRuntimeOnly "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-desktop"
+}
+
+// Tests cover the pure game logic (economy, combat maths, fleet simulation, save round-trips,
+// pathfinding) - not the Scene2D/rendering layer, which would need a real GL context to exercise
+// and is verified by actually running the game instead (see CLAUDE.md's testing discipline).
+test {
+    useJUnitPlatform()
+    testLogging {
+        events "failed"
+        exceptionFormat "full"
+    }
 }

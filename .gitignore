@@ -1,6 +1,57 @@
+# --- Gradle ---
 .gradle/
 build/
+local.properties
+.kotlin/
+
+# --- Build output from the IDE (Eclipse/VS Code Kotlin plugin) ---
+# core/bin/ and lwjgl3/bin/ are compiled classes, not sources.
+bin/
+out/
+classes/
+
+# --- Packaged distributables (shadowJar / jpackage output) ---
+dist/
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# --- IntelliJ IDEA / Android Studio ---
 .idea/
 *.iml
-out/
-local.properties
+*.ipr
+*.iws
+
+# --- Eclipse ---
+.settings/
+.project
+.classpath
+.metadata
+
+# --- VS Code (local editor preferences) ---
+.vscode/
+
+# --- NetBeans ---
+nbproject/
+nbactions.xml
+
+# --- Logs & JVM crash dumps ---
+*.log
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# --- Claude Code local settings (machine-specific, not shared) ---
+.claude/settings.local.json
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# --- Editor temp files ---
+*~
+*.swp
+*.bak
+*.tmp
+*.orig
