@@ -1,0 +1,276 @@
+name: Release
+
+# Runs the unit tests on every push to main, and - when appVersion in
+# gradle.properties changes - additionally builds the Windows exe, tags the
+# commit and publishes a GitHub Release. Safe to run on every push: the build
+# and publish half no-ops if a release for the current version already exists.
+#
+# Three jobs rather than one. The version check is split out so the expensive
+# Windows job never starts for a version that is already released, and the
+# tests run on Linux, unconditionally - a broken commit should fail CI the
+# moment it lands, not sit unnoticed until the next version bump. Only the
+# build/publish half is gated on the version actually having changed.
+#
+# A manual run (workflow_dispatch) is the way to retry a release that failed
+# partway through: the version check still applies, so it will do nothing if
+# the release already exists.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/src/**'
+      - 'lwjgl3/src/**'
+      - 'assets/**'
+      - 'gradle/**'
+      - '**/build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Never let two release runs publish at once; never cancel one midway through
+# creating a tag and uploading 140 MB of assets.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      # Full history: the skip check below has to resolve existing tags, and a
+      # default shallow clone fetches none of them.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read appVersion from gradle.properties
+        id: version
+        run: |
+          ver=$(grep -E '^appVersion=' gradle.properties | cut -d= -f2- | tr -d '[:space:]')
+          if [ -z "$ver" ]; then
+            echo "::error file=gradle.properties::Could not read appVersion from gradle.properties"
+            exit 1
+          fi
+          # jpackage on Windows only accepts a numeric version of up to four
+          # components. Catching a bad one here costs seconds; catching it in
+          # the Windows job costs a full build first.
+          if ! printf '%s' "$ver" | grep -Eq '^[0-9]+(\.[0-9]+){0,3}$'; then
+            echo "::error file=gradle.properties::appVersion '$ver' is not jpackage-compatible - it must be 1 to 4 dot-separated numbers (e.g. 0.4.5.3)."
+            exit 1
+          fi
+          echo "Version: $ver"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tag=v$ver" >> "$GITHUB_OUTPUT"
+
+      # Two ways this version can already be spoken for. The second one matters
+      # because the assets are built from THIS commit: publishing them under a
+      # tag that points somewhere else would ship a download that does not match
+      # the source it claims to be. Bumping appVersion is the fix in both cases.
+      - name: Skip if this version was already released
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists - tests still run, publishing is skipped."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            # rev-list derefs an annotated tag down to the commit it points at.
+            tag_commit=$(git rev-list -n 1 "$tag")
+            if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+              echo "::warning file=gradle.properties::Tag $tag already exists at ${tag_commit:0:7}, but this build is from ${GITHUB_SHA:0:7}. Not publishing - the assets would not match the tagged source. Bump appVersion in gradle.properties to cut a new release."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Tag $tag already points at this commit - will publish a release for it."
+          else
+            echo "No tag or release yet for $tag - will create both."
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The project targets Java 17 (sourceCompatibility in both modules), and
+      # jpackage in the release job below ships with the same JDK.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # gradlew is committed from a Windows machine, where git records no
+      # execute bit; without this the next step fails with "permission denied".
+      - name: Run tests
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :core:test
+
+      # The console output only names the failing assertion. The HTML/XML
+      # report has the full picture, and is worth having when a run fails.
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: |
+            core/build/reports/tests/test
+            core/build/test-results/test
+          retention-days: 7
+
+  release:
+    name: Windows build and publish
+    needs: [check, test]
+    if: needs.check.outputs.skip == 'false'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # jpackage is part of the JDK (since 14), so no extra tooling is needed
+      # to produce the exe - this same JDK is what gets bundled as the runtime.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The single self-contained jar: all dependencies plus the LWJGL/GDX
+      # natives merged in, and assets baked in via lwjgl3's resources srcDir.
+      - name: Build the distributable jar
+        run: ./gradlew.bat --no-daemon :lwjgl3:shadowJar
+
+      # jpackage copies EVERYTHING in --input into the app directory, so the
+      # jar is staged into a clean folder of its own rather than pointing at
+      # build/libs, which can also hold a plain (non-shadow) jar.
+      - name: Stage the jar for packaging
+        shell: pwsh
+        run: |
+          $version = "${{ needs.check.outputs.version }}"
+          $jar = "lwjgl3/build/libs/port-royale-2d-tiny-$version.jar"
+          if (-not (Test-Path $jar)) {
+            Write-Error "Expected jar not found: $jar - does shadowJar's archiveVersion still follow appVersion?"
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item $jar staging/
+
+      # --type app-image: a portable folder (launcher exe + bundled JRE + the
+      # jar), not an installer. Matches how the existing dist/ builds were made
+      # by hand, so the zip a player downloads has the same shape as before.
+      - name: Build the Windows exe
+        shell: pwsh
+        run: |
+          $version = "${{ needs.check.outputs.version }}"
+          jpackage `
+            --type app-image `
+            --name PortRoyale2DTiny `
+            --input staging `
+            --main-jar "port-royale-2d-tiny-$version.jar" `
+            --main-class com.portroyale.tiny.lwjgl3.Lwjgl3Launcher `
+            --app-version $version `
+            --dest dist
+          if (-not (Test-Path "dist/PortRoyale2DTiny/PortRoyale2DTiny.exe")) {
+            Write-Error "jpackage reported success but produced no launcher exe."
+            exit 1
+          }
+
+      # 7-Zip ships with the windows-latest runner image and is many times
+      # faster than Compress-Archive on a ~140 MB tree. The archive keeps
+      # PortRoyale2DTiny/ as its top-level folder, matching earlier releases.
+      - name: Zip the portable build
+        shell: pwsh
+        run: |
+          $version = "${{ needs.check.outputs.version }}"
+          # Zipped from inside dist/ so the archive root is unambiguously
+          # PortRoyale2DTiny/ rather than dist/PortRoyale2DTiny/.
+          Push-Location dist
+          7z a -tzip -mx=5 "PortRoyale2DTiny-$version-win64.zip" "PortRoyale2DTiny" | Out-Null
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) {
+            Write-Error "7z failed with exit code $code"
+            exit 1
+          }
+
+      # Prefer the hand-written CHANGELOG section for this version over
+      # auto-generated commit notes - it is the one written for players.
+      - name: Assemble release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $version = "${{ needs.check.outputs.version }}"
+          $lines = Get-Content CHANGELOG.md
+          $pattern = '^##\s*\[' + [regex]::Escape($version) + '\]'
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match $pattern) { $start = $i + 1; break }
+          }
+          if ($start -lt 0) {
+            Write-Host "No CHANGELOG section for $version - falling back to generated notes."
+            "generated=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $end = $lines.Count
+          for ($i = $start; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^##\s*\[') { $end = $i; break }
+          }
+          $body = ""
+          if ($end -gt $start) {
+            $body = ($lines[$start..($end - 1)] -join "`n").Trim()
+          }
+          if ([string]::IsNullOrWhiteSpace($body)) {
+            Write-Host "CHANGELOG section for $version is empty - falling back to generated notes."
+            "generated=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          $body | Out-File -FilePath release-notes.md -Encoding utf8
+          "generated=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # gh creates the tag at this commit as part of creating the release, so
+      # there is no separate tagging step. Two assets: the portable Windows
+      # build for players, and the bare jar for anyone with a JDK 17+ on any
+      # platform (see CLAUDE.md's build notes).
+      - name: Create tag and GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ needs.check.outputs.version }}"
+          $tag = "${{ needs.check.outputs.tag }}"
+          $zip = "dist/PortRoyale2DTiny-$version-win64.zip"
+          $jar = "lwjgl3/build/libs/port-royale-2d-tiny-$version.jar"
+          foreach ($f in @($zip, $jar)) {
+            if (-not (Test-Path $f)) {
+              Write-Error "Expected artifact not found: $f"
+              exit 1
+            }
+          }
+          if ("${{ steps.notes.outputs.generated }}" -eq "true") {
+            gh release create $tag $zip $jar --title $tag --generate-notes
+          } else {
+            gh release create $tag $zip $jar --title $tag --notes-file release-notes.md
+          }
