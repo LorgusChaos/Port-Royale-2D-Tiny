@@ -1,8 +1,10 @@
 package com.portroyale.tiny.economy
 
 import com.portroyale.tiny.factions.Faction
+import com.portroyale.tiny.factions.GOLD_PER_REPUTATION_POINT
 import com.portroyale.tiny.factions.REPUTATION_MAX
 import com.portroyale.tiny.factions.REPUTATION_MIN
+import com.portroyale.tiny.factions.RIVAL_PENALTY_RATIO
 import com.portroyale.tiny.factions.ReputationTier
 import com.portroyale.tiny.factions.reputationTier
 import com.portroyale.tiny.ships.ShipCondition
@@ -47,6 +49,11 @@ class Player(var gold: Int = 10000) {
     val reputation = mutableMapOf<Faction, Int>().apply {
         Faction.entries.forEach { put(it, 0) }
     }
+
+    /** Sub-point reputation carried between sales - see [recordSale]. Always in (-1, 1); kept
+     *  apart from [reputation] so the visible number stays a plain Int for the UI and for every
+     *  save written so far. */
+    val reputationRemainder = mutableMapOf<Faction, Float>()
 
     /** Only ports the player has actually bought a warehouse in get an entry - see
      *  [warehouseAt]/[buyWarehouse]. */
@@ -253,12 +260,44 @@ class Player(var gold: Int = 10000) {
         reputation[faction] = (current + delta).coerceIn(REPUTATION_MIN, REPUTATION_MAX)
     }
 
+    /**
+     * Books a completed sale of [revenue] gold in a port owned by [sellerFaction]: that faction
+     * gains standing, the other three lose a [RIVAL_PENALTY_RATIO]-times smaller amount. This is
+     * the whole of M14's faction conflict - selling to one power is, by itself, trading against
+     * the others, so no record of where a good was *bought* is needed anywhere.
+     *
+     * Reputation is driven by gold, not by units, so a cargo of silver counts for more than the
+     * same hold full of wood. Buying moves nothing: only a sale takes a side.
+     *
+     * Called by the market screen for the player's own sales and by FleetSimulation for a hired
+     * captain's, so delegating trade cannot be used to dodge its consequences.
+     */
+    fun recordSale(sellerFaction: Faction?, revenue: Int) {
+        if (revenue <= 0) return
+        val gain = revenue / GOLD_PER_REPUTATION_POINT
+        val penalty = gain / RIVAL_PENALTY_RATIO
+        for (faction in Faction.entries) {
+            applyReputationDelta(faction, if (faction == sellerFaction) gain else -penalty)
+        }
+    }
+
+    /** Applies a fractional reputation change, carrying the leftover to the next sale. Without
+     *  this a 500g sale would round to zero and small hand-made trades would count for nothing
+     *  at all, while a captain's bulk sale counted fully. */
+    private fun applyReputationDelta(faction: Faction, delta: Float) {
+        val carried = (reputationRemainder[faction] ?: 0f) + delta
+        val whole = carried.toInt() // truncates toward zero, so the remainder keeps delta's sign
+        reputationRemainder[faction] = carried - whole
+        if (whole != 0) adjustReputation(faction, whole)
+    }
+
     /** Resets to a fresh captain's starting state, for New Game. */
     fun reset() {
         gold = 10000
         ship = ShipTypes.SLOOP
         Good.entries.forEach { cargo[it] = 0 }
         Faction.entries.forEach { reputation[it] = 0 }
+        reputationRemainder.clear()
         warehouses.clear()
         loan = null
         captains.clear()
@@ -281,6 +320,7 @@ class Player(var gold: Int = 10000) {
         this.ship = ship
         Good.entries.forEach { this.cargo[it] = cargo[it] ?: 0 }
         Faction.entries.forEach { reputation[it] = 0 }
+        reputationRemainder.clear()
     }
 
     /** Restores the fleet roster from a save - see SaveManager.resolveOwnedShips. Falls back to

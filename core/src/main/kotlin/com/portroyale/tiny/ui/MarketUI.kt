@@ -20,13 +20,12 @@ import com.portroyale.tiny.factions.buyPriceMultiplier
 import com.portroyale.tiny.factions.sellPriceMultiplier
 import com.portroyale.tiny.world.Ports
 
-private const val REP_GAIN_PER_TRADE = 1
-
 /** Goods market sub-screen: buy/sell one unit at a time. Price = port's historical bias x
  *  current supply/demand (MarketState) x buy/sell spread x reputation with the port's faction -
- *  buying nudges that good's stock down (price rises), selling nudges it up (price falls), and
- *  every trade nudges reputation up slightly. Reached from PortHubUI; "Back" returns to the hub,
- *  not to open sea. */
+ *  buying nudges that good's stock down (price rises), selling nudges it up (price falls).
+ *  Selling also takes a side: it raises standing with this port's faction and lowers it with the
+ *  other three (see Player.recordSale); buying is neutral. Reached from PortHubUI; "Back"
+ *  returns to the hub, not to open sea. */
 class MarketUI(private val player: Player, private val onBack: () -> Unit) {
 
     val stage = Stage(UiScale.viewport())
@@ -109,7 +108,7 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
                     if (player.canBuy(price)) {
                         player.buy(good, price)
                         MarketState.onBuy(currentPort, good)
-                        gainReputation()
+                        // Buying takes no side and so moves no reputation - see Player.recordSale.
                         AudioManager.playCoins()
                         refresh()
                     }
@@ -136,7 +135,7 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
                     if (player.canSell(good)) {
                         player.sell(good, price)
                         MarketState.onSell(currentPort, good)
-                        gainReputation()
+                        player.recordSale(portFaction, price)
                         AudioManager.playCoins()
                         refresh()
                     }
@@ -180,10 +179,6 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
         val faction = portFaction ?: return base
         val rep = player.reputation[faction] ?: 0
         return (base * sellPriceMultiplier(rep)).toInt().coerceAtLeast(1)
-    }
-
-    private fun gainReputation() {
-        portFaction?.let { player.adjustReputation(it, REP_GAIN_PER_TRADE) }
     }
 
     private fun refresh() {

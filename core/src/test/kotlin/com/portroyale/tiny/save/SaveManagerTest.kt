@@ -78,6 +78,31 @@ class SaveManagerTest {
         assertEquals(0, resolved[Faction.ENGLAND])
     }
 
+    @Test
+    fun `the sub-point reputation owed from past sales survives a save`() {
+        val resolved = SaveManager.resolveReputationRemainder(mapOf("SPAIN" to 0.75f, "FRANCE" to -0.5f))
+        assertEquals(0.75f, resolved[Faction.SPAIN])
+        assertEquals(-0.5f, resolved[Faction.FRANCE])
+        assertNull(resolved[Faction.ENGLAND], "an untouched faction owes nothing")
+    }
+
+    @Test
+    fun `a save from before M14 simply owes nothing`() {
+        assertTrue(SaveManager.resolveReputationRemainder(emptyMap()).isEmpty())
+    }
+
+    @Test
+    fun `a whole point sitting in the remainder is discarded, not credited`() {
+        // Only a fraction belongs here; anything else is a corrupted or hand-edited save, and
+        // honouring it would hand out reputation that was never earned.
+        val resolved = SaveManager.resolveReputationRemainder(
+            mapOf("SPAIN" to 40f, "ENGLAND" to -1f, "FRANCE" to 0.99f)
+        )
+        assertNull(resolved[Faction.SPAIN])
+        assertNull(resolved[Faction.ENGLAND])
+        assertEquals(0.99f, resolved[Faction.FRANCE])
+    }
+
     // --- warehouses ---
 
     @Test

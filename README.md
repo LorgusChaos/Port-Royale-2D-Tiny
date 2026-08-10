@@ -3,7 +3,7 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5.4 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.5.5 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
 > ships that actually hunt down a target they've spotted, a small hired fleet of captains who
 > fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
@@ -13,7 +13,7 @@ combat, deliberately kept small in scope for a solo/hobby project.
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5.4
+## What's here in v0.4.5.5
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -35,7 +35,8 @@ franchise's creators or publishers.
   - a **shipyard** - Ship Status (condition, upgrades, hull cleaning, repairs) is the primary
     screen; a "Buy a Ship" sub-screen offers six classes (Sloop/Cutter/Barque/Brigantine/Galleon/
     Man-of-War, each its own distinct hull livery) as a single row of cards;
-  - a **Commandant's Office** - standing with each colonial power, plus a loan system: borrow one
+  - a **Commandant's Office** - standing with each colonial power (see the reputation bars in the
+    HUD, and the faction conflict below), plus a loan system: borrow one
     of three fixed sums with interest and a repayment term; missing the deadline doubles the debt
     and turns that faction hostile (a red-filling debt icon with a countdown sits above the
     minimap while a loan is outstanding);
@@ -62,6 +63,14 @@ franchise's creators or publishers.
   it first - running for whichever port is closer than the danger itself, or steering around it
   the same way ships already steer around land - and if caught anyway, fights for real (the same
   combat math as your own fights, just resolved instantly): win, flee, or lose the ship for good.
+- You cannot be everyone's friend. Selling in a port raises your standing with the faction that
+  owns it and lowers it with the other three, three times more gently - so every sale quietly
+  takes a side, and an evenly spread trader earns nobody's friendship. The arithmetic means at
+  most three of the four powers can be kept climbing at once; the fourth pays for it. Four
+  reputation bars in the HUD (collapsible, notched at each tier boundary) show all of it moving
+  in real time. Standing is not just a price modifier either: an unfriendly navy will pick a
+  fight it thinks it wins, while a hostile one hunts you regardless. Your hired captains' sales
+  count exactly like your own, so delegating trade never means dodging its consequences.
 - A living map: trade and military ships patrol between their faction's own ports; pirates wander
   between any port at a random tier (1-5, hull size/speed and reward scaled to match) and flee
   rather than engage a ship clearly stronger than them, and vice versa - every AI ship's sailing
@@ -246,12 +255,20 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       "danger score", to stay consistent with not handing the player a full picture upfront
 - [ ] **M12** - expand the Commandant's Office beyond reputation + loans, including tying
       loans to fleet expansion (borrowing specifically to afford a second ship/captain sooner)
-- [ ] **M14** - faction conflict: trading a rival faction's goods (bought from them) with
-      their competitor costs reputation with the original faction, cumulatively - gives the
-      "Influence" status ceiling a real trade-off (3 of 4 factions at max reputation, not 4 of 4)
+- [x] **M14** - faction conflict: selling in a port raises standing with its faction and lowers
+      it with the other three, three times more gently, so every sale takes a side. The share of
+      revenue a faction needs before its standing climbs falls out of that ratio at 25%, which
+      caps the number of powers you can keep friendly at three of four - the "Influence" ceiling,
+      derived rather than declared. Navies now react in three steps instead of one (indifferent /
+      picks fights it wins / hunts you), and four reputation bars sit in the HUD so a sale's
+      trade-off is visible as it happens. Hired captains' sales count exactly like your own
+      *(this release)*
 - [ ] **M14b** - world expansion: grow the port roster beyond the current twelve - mostly
       content work (new entries in the already-parameterized port/market data), done after
-      M14 so the new ports don't need the faction-conflict balance recalibrated twice
+      M14 so the new ports don't need the faction-conflict balance recalibrated twice. New
+      ports must also even out the per-faction roster (today 7/3/1/1): M14's reputation runs
+      off *share of sales revenue*, so France and the Netherlands currently sink structurally
+      rather than by the player's choice
 - [ ] **M15** - economy balance pass, now with real thresholds to calibrate against (status
       ceilings, captain hiring costs, the M14 reputation penalty) instead of placeholders
 - [ ] **M16** - full UI/UX polish pass: every remaining menu, icon, and interactive element

@@ -1,5 +1,6 @@
 package com.portroyale.tiny.economy
 
+import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.factions.buyPriceMultiplier
 import com.portroyale.tiny.factions.sellPriceMultiplier
 import com.portroyale.tiny.world.GameClock
@@ -266,6 +267,9 @@ object FleetSimulation {
 
         repeat(captain.cargoUnits) { MarketState.onSell(port, good) }
         player.gold += proceeds
+        // A captain's sale takes exactly the same side the player's own would - otherwise the
+        // fleet would be a way to trade without ever answering for it (see Player.recordSale).
+        player.recordSale(factionAt(port), proceeds)
         val profit = proceeds - captain.cargoCostTotal
         captain.totalProfit += profit
         captain.lastReport =
@@ -353,8 +357,10 @@ object FleetSimulation {
     private fun applyCaptainSellTerms(basePrice: Int, captain: Captain, repMultiplier: Float): Int =
         (basePrice * (1f + captain.tradeSense) * repMultiplier).toInt().coerceAtLeast(1)
 
+    private fun factionAt(port: String): Faction? = Ports.ALL.firstOrNull { it.name == port }?.faction
+
     private fun reputationAt(player: Player, port: String): Int {
-        val faction = Ports.ALL.firstOrNull { it.name == port }?.faction ?: return 0
+        val faction = factionAt(port) ?: return 0
         return player.reputation[faction] ?: 0
     }
 }

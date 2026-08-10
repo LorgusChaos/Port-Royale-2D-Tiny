@@ -1,5 +1,6 @@
 package com.portroyale.tiny.economy
 
+import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.ships.ShipTypes
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -507,6 +508,40 @@ class FleetSimulationTest {
         assertEquals(0, captain.totalProfit)
         assertTrue(player.gold <= goldBefore, "nothing should have been sold")
         assertTrue(captain.lastReport.contains("waiting for a better price"), captain.lastReport)
+    }
+
+    @Test
+    fun `a captain's sale takes the same side the player's own would`() {
+        // Delegating trade must not be a way to trade without answering for it: the captain sells
+        // at Portobelo, so Spain gains and the other three lose (see Player.recordSale).
+        val (player, sloopId) = playerWithSpareSloop()
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+        assertTrue(player.reputation.values.all { it == 0 }, "hiring alone takes no side")
+
+        // Several legs, because one captain's sale is worth a couple of reputation points at
+        // most - the rivals' share of that is a fraction, and fractions are carried rather than
+        // credited until they add up to a whole point (see Player.recordSale).
+        repeat(4) { FleetSimulation.update(player, captain.arrivesAtGameMinutes, anyDistance) }
+
+        assertTrue(player.reputation.getValue(Faction.SPAIN) > 0, "both route ports are Spanish")
+        for (faction in Faction.entries - Faction.SPAIN) {
+            assertTrue(player.reputation.getValue(faction) < 0, "$faction should have lost standing")
+        }
+    }
+
+    @Test
+    fun `a captain who only holds cargo takes no side at all`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+        captain.cargoGood = Good.SILVER
+        captain.cargoUnits = 10
+        captain.cargoCostTotal = 1_000_000 // refuses to sell at this loss
+
+        FleetSimulation.update(player, captain.arrivesAtGameMinutes, anyDistance)
+
+        assertTrue(player.reputation.values.all { it == 0 }, "no sale, no consequence")
     }
 
     @Test

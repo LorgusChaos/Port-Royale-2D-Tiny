@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.4.5.5] - 2026-08-10
+
+### Added
+- Faction conflict (M14): you can no longer be everyone's friend. Selling in a port raises your
+  standing with the faction that owns it and lowers it with the other three, three times more
+  gently - so every sale takes a side, whether or not you meant it to. Buying is neutral; only
+  selling commits you.
+- The share of your sales revenue a faction needs before its standing starts climbing works out
+  to 25%, which is what caps the number of powers you can keep friendly at three of the four.
+  That ceiling is not a rule written anywhere in the code - it falls out of the ratio between the
+  gain and the penalty, and the tests hold it there so a later balance pass cannot break it by
+  accident.
+- Reputation bars in the HUD: one horizontal bar per colonial power, running from hostile through
+  neutral to allied, notched at each tier boundary, so a sale's trade-off is visible as it
+  happens instead of being a number you go and look up afterwards. Collapsible - four permanent
+  bars is a lot of screen to give up while sailing.
+- A notification when standing crosses a tier boundary in either direction, since that is the
+  moment prices change and navies change their minds.
+- Navies now react in three steps rather than one. Indifferent while your standing is neutral or
+  better; an unfriendly power picks fights it thinks it wins (the same judgement pirates already
+  make) but lets a well-armed ship pass; only an outright hostile one attacks regardless and
+  keeps coming back after a failed attempt.
+- Hired captains' sales move reputation exactly like your own, so putting a fleet between you and
+  the market is not a way to trade without answering for it.
+
+### Changed
+- Reputation is now driven by the gold value of a sale rather than by one point per unit traded,
+  so a hold of silver counts for more than the same hold of wood. Sub-point amounts are carried
+  over rather than rounded away, so small hand-made trades still count for something.
+- Buying no longer raises reputation at all. It used to, which meant stocking up in a rival's
+  port quietly improved your standing with them.
+
+### Internal
+- Saves gain the carried sub-point reputation; saves written before this version load with none,
+  which is simply a clean start on that one field.
+- The M14 design doc (`Project design/05-factions-reputation-conflict.md`) describes a mechanism
+  keyed to where each good was *bought* - that was rejected during design, because cargo carries
+  no record of its origin and adding one would have meant changing the cargo, warehouse and save
+  structures. The doc now says so up front, and the roadmap entry records what was built instead.
+- M14b picks up a requirement from this milestone: new ports must even out the per-faction roster
+  (today 7/3/1/1), because reputation running off share of revenue makes France and the
+  Netherlands sink structurally rather than by the player's choice.
+
 ## [0.4.5.4] - 2026-08-09
 
 ### Fixed

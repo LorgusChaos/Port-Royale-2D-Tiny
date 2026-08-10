@@ -32,8 +32,10 @@ import com.portroyale.tiny.economy.MarketState
 import com.portroyale.tiny.economy.OwnedShip
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.factions.Faction
-import com.portroyale.tiny.factions.REPUTATION_HOSTILE_THRESHOLD
+import com.portroyale.tiny.factions.MilitaryStance
 import com.portroyale.tiny.factions.REPUTATION_MIN
+import com.portroyale.tiny.factions.ReputationTier
+import com.portroyale.tiny.factions.militaryStance
 import com.portroyale.tiny.save.AUTOSAVE_NAME
 import com.portroyale.tiny.save.SaveManager
 import com.portroyale.tiny.save.SettingsManager
@@ -236,6 +238,11 @@ class PortRoyaleGame : ApplicationAdapter() {
 
     private val aiShips = mutableListOf<AiShip>()
     private var huntedShip: AiShip? = null
+
+    /** Last reputation tier the player was told about, per faction - see
+     *  [announceReputationTierChanges]. Deliberately not saved: on load it refills from the
+     *  restored standing on the first frame, which is exactly the "no news" state wanted. */
+    private val lastAnnouncedTier = mutableMapOf<Faction, ReputationTier>()
     private var currentAiTarget: AiShip? = null
 
     // Fixed-size pool of invisible random-event locations scattered across the water; each slot
@@ -488,6 +495,8 @@ class PortRoyaleGame : ApplicationAdapter() {
             hudOverlayUI.setGold(player.gold)
             hudOverlayUI.setGameSpeed(GameSpeed.multiplier)
             hudOverlayUI.setCaptains(player.captains.filter { !it.isIdle })
+            hudOverlayUI.setReputation(player.reputation)
+            announceReputationTierChanges()
             hudOverlayUI.render(Gdx.graphics.deltaTime)
         }
 
@@ -948,6 +957,8 @@ class PortRoyaleGame : ApplicationAdapter() {
         val cargo = SaveManager.resolveCargo(data.cargo)
         player.loadState(data.gold, shipType, cargo)
         SaveManager.resolveReputation(data.reputation).forEach { (faction, value) -> player.reputation[faction] = value }
+        player.reputationRemainder.clear()
+        player.reputationRemainder.putAll(SaveManager.resolveReputationRemainder(data.reputationRemainder))
         MarketState.restore(data.marketState)
         GameClock.restore(data.gameClockMinutes)
         player.warehouses.clear()
@@ -1138,7 +1149,13 @@ class PortRoyaleGame : ApplicationAdapter() {
         if (ship.role == AiShipRole.PIRATE) return ship.tier >= targetTier
         if (ship.role != AiShipRole.MILITARY) return false
         val faction = ship.faction ?: return false
-        return (player.reputation[faction] ?: 0) <= REPUTATION_HOSTILE_THRESHOLD
+        return when (militaryStance(player.reputation[faction] ?: 0)) {
+            MilitaryStance.IGNORES -> false
+            // Unfriendly, not yet at war: a patrol will bully a target it clearly outguns and
+            // leave a well-armed one alone - the same judgement a pirate already makes.
+            MilitaryStance.OPPORTUNISTIC -> ship.tier >= targetTier
+            MilitaryStance.HUNTS -> true
+        }
     }
 
     /** How long [ship] waits before it'll try [targetTier] again after failing to catch it this
@@ -1152,7 +1169,11 @@ class PortRoyaleGame : ApplicationAdapter() {
     private fun giveUpCooldownFor(ship: AiShip, targetTier: Int): Float {
         val relentless = when (ship.role) {
             AiShipRole.PIRATE -> ship.tier - targetTier >= PIRATE_RELENTLESS_TIER_GAP
-            AiShipRole.MILITARY -> isHostile(ship, targetTier)
+            // Only an outright hostile navy keeps coming back. One that merely dislikes the
+            // player (OPPORTUNISTIC) takes its shot and then lets go like any cautious ship.
+            AiShipRole.MILITARY -> ship.faction?.let {
+                militaryStance(player.reputation[it] ?: 0) == MilitaryStance.HUNTS
+            } ?: false
             AiShipRole.TRADE -> false
         }
         return if (relentless) GIVE_UP_COOLDOWN_RELENTLESS else GIVE_UP_COOLDOWN_CAUTIOUS
@@ -1184,6 +1205,25 @@ class PortRoyaleGame : ApplicationAdapter() {
                 "to ${loan.repayAmount}g, and their ships will now attack you on sight.",
             IconFactory.debt
         )
+    }
+
+    /** Announces a crossed reputation tier once, in either direction. Polled from the render loop
+     *  rather than raised at each call site because standing now moves from four different places
+     *  (the player's own sale, a captain's sale, sinking a ship, an overdue loan) - and a sale
+     *  moves all four factions at once. Without this the player watches a bar creep and never
+     *  learns that the notch it just passed is what changed prices, or what put a navy on them. */
+    private fun announceReputationTierChanges() {
+        for (faction in Faction.entries) {
+            val tier = player.reputationTier(faction)
+            val previous = lastAnnouncedTier[faction]
+            lastAnnouncedTier[faction] = tier
+            if (previous == null || previous == tier) continue
+            val improved = tier.ordinal > previous.ordinal
+            eventToastUI.show(
+                "${faction.displayName}: ${previous.label} -> ${tier.label}",
+                if (improved) IconFactory.coin else IconFactory.debt
+            )
+        }
     }
 
     private fun updateDebtHud() {

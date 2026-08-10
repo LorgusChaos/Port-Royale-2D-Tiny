@@ -13,6 +13,7 @@ import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.utils.Align
 import com.portroyale.tiny.economy.Captain
+import com.portroyale.tiny.factions.Faction
 
 private const val ICON_SIZE = 40f
 private const val CAPTAIN_ICON_SIZE = 32f
@@ -20,6 +21,15 @@ private const val DEBT_BAR_WIDTH = 40
 private const val DEBT_BAR_HEIGHT = 8
 private val DEBT_BAR_EMPTY = Color.valueOf("2E2A24")
 private val DEBT_BAR_FILL = Color.valueOf("A61C1C")
+
+private const val REP_BAR_WIDTH = 104
+private const val REP_BAR_HEIGHT = 10
+private val REP_BAR_EMPTY = Color.valueOf("2E2A24")
+private val REP_BAR_TIER_MARK = Color.valueOf("6B6152")
+private val REP_BAR_ZERO_MARK = Color.valueOf("C9BC9C")
+/** The tier boundaries from factions/Faction.kt, drawn as the notches a player reads position
+ *  against - above them a discount, below them a navy that starts taking an interest. */
+private val REP_TIER_MARKS = intArrayOf(-50, -15, 15, 50)
 
 /** Small persistent HUD elements shown while sailing - anchored top-left: the in-game calendar
  *  date and gold balance (pure display, see setDate/setGold); anchored under the minimap
@@ -48,6 +58,14 @@ class HudOverlayUI(
     private val speedLabel = Label("", skin)
     private val captainIconsGroup = Table()
     private var lastCaptains: List<Captain> = emptyList()
+
+    private val reputationGroup = Table()
+    private val reputationRows = Table()
+    private val reputationToggleLabel = Label("", skin)
+    private val reputationBars = mutableMapOf<Faction, Image>()
+    private val reputationTextures = mutableMapOf<Faction, Texture>()
+    private val lastReputation = mutableMapOf<Faction, Int>()
+    private var reputationExpanded = true
 
     init {
         val root = Table()
@@ -101,10 +119,91 @@ class HudOverlayUI(
         val goldRow = Table()
         goldRow.add(Image(TextureRegionDrawable(TextureRegion(IconFactory.coin)))).size(24f, 24f).padRight(6f)
         goldRow.add(goldLabel)
-        infoRoot.add(goldRow).left().padTop(8f)
+        infoRoot.add(goldRow).left().padTop(8f).row()
+
+        buildReputationBlock()
+        infoRoot.add(reputationGroup).left().padTop(10f)
 
         stage.addActor(infoRoot)
     }
+
+    /** Four horizontal bars, one per colonial power, running from -100 on the left through zero
+     *  in the middle to +100 on the right, with the tier boundaries notched in. This is the only
+     *  place the player can watch a sale push one power up and the other three down at once (see
+     *  Player.recordSale), which is what makes M14's trade-off legible instead of a number that
+     *  quietly drifts in the Commandant's Office. Collapsible because four permanent bars is a
+     *  lot of screen to give up while sailing. */
+    private fun buildReputationBlock() {
+        reputationToggleLabel.setFontScale(0.9f)
+        val toggle = Table()
+        toggle.add(reputationToggleLabel).left()
+        toggle.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                reputationExpanded = !reputationExpanded
+                applyReputationExpansion()
+            }
+        })
+        reputationGroup.add(toggle).left().row()
+
+        for (faction in Faction.entries) {
+            val name = Label(faction.displayName, skin)
+            name.setFontScale(0.85f)
+            val bar = Image()
+            reputationBars[faction] = bar
+            reputationRows.add(name).left().width(96f).padRight(6f)
+            reputationRows.add(bar).size(REP_BAR_WIDTH.toFloat(), REP_BAR_HEIGHT.toFloat()).row()
+        }
+        reputationGroup.add(reputationRows).left()
+        applyReputationExpansion()
+    }
+
+    private fun applyReputationExpansion() {
+        reputationRows.isVisible = reputationExpanded
+        reputationToggleLabel.setText(if (reputationExpanded) "Standing -" else "Standing +")
+        reputationRows.cells.forEach { it.setActorHeight(if (reputationExpanded) REP_BAR_HEIGHT.toFloat() else 0f) }
+        reputationGroup.invalidateHierarchy()
+    }
+
+    /** Rebuilds a bar's texture only when that faction's standing actually moved - this runs
+     *  every frame, and a Texture per faction per frame would leak the GPU dry. */
+    fun setReputation(reputation: Map<Faction, Int>) {
+        for (faction in Faction.entries) {
+            val value = (reputation[faction] ?: 0).coerceIn(-100, 100)
+            if (lastReputation[faction] == value) continue
+            lastReputation[faction] = value
+            reputationTextures[faction]?.dispose()
+            val texture = buildReputationBarTexture(faction, value)
+            reputationTextures[faction] = texture
+            reputationBars[faction]?.drawable = TextureRegionDrawable(TextureRegion(texture))
+        }
+    }
+
+    private fun buildReputationBarTexture(faction: Faction, value: Int): Texture {
+        val pixmap = Pixmap(REP_BAR_WIDTH, REP_BAR_HEIGHT, Pixmap.Format.RGBA8888)
+        pixmap.setColor(REP_BAR_EMPTY)
+        pixmap.fill()
+
+        val zeroX = REP_BAR_WIDTH / 2
+        pixmap.setColor(faction.tint)
+        val valueX = reputationToX(value)
+        val left = minOf(zeroX, valueX)
+        val width = kotlin.math.abs(valueX - zeroX)
+        if (width > 0) pixmap.fillRectangle(left, 0, width, REP_BAR_HEIGHT)
+
+        pixmap.setColor(REP_BAR_TIER_MARK)
+        for (mark in REP_TIER_MARKS) {
+            pixmap.fillRectangle(reputationToX(mark), 0, 1, REP_BAR_HEIGHT)
+        }
+        pixmap.setColor(REP_BAR_ZERO_MARK)
+        pixmap.fillRectangle(zeroX, 0, 1, REP_BAR_HEIGHT)
+
+        val texture = Texture(pixmap)
+        pixmap.dispose()
+        return texture
+    }
+
+    private fun reputationToX(value: Int): Int =
+        (((value + 100) / 200f) * REP_BAR_WIDTH).toInt().coerceIn(0, REP_BAR_WIDTH - 1)
 
     fun setDate(text: String) {
         dateLabel.setText(text)
@@ -187,5 +286,6 @@ class HudOverlayUI(
         stage.dispose()
         skin.dispose()
         debtBarTexture?.dispose()
+        reputationTextures.values.forEach { it.dispose() }
     }
 }

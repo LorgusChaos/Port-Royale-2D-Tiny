@@ -36,6 +36,9 @@ class GameSaveData {
     var oarLevel: Int = 0
     var sailLevel: Int = 0
     var reputation: MutableMap<String, Int> = mutableMapOf()
+    /** Sub-point reputation still owed from past sales - see Player.recordSale. Absent from
+     *  saves written before M14, which simply resume from a clean zero. */
+    var reputationRemainder: MutableMap<String, Float> = mutableMapOf()
     var marketState: MutableMap<String, Float> = mutableMapOf()
     var savedAt: Long = 0L
     var gameClockMinutes: Float = 0f
@@ -132,6 +135,8 @@ object SaveManager {
         data.oarLevel = player.condition.oarLevel
         data.sailLevel = player.condition.sailLevel
         data.reputation = player.reputation.entries.associate { it.key.name to it.value }.toMutableMap()
+        data.reputationRemainder =
+            player.reputationRemainder.entries.associate { it.key.name to it.value }.toMutableMap()
         data.marketState = MarketState.snapshot().toMutableMap()
         data.savedAt = System.currentTimeMillis()
         data.gameClockMinutes = GameClock.snapshot()
@@ -212,6 +217,15 @@ object SaveManager {
 
     fun resolveReputation(saved: Map<String, Int>): Map<Faction, Int> =
         Faction.entries.associateWith { saved[it.name] ?: 0 }
+
+    /** Only entries that are actually a fraction survive: a whole point sitting here would mean
+     *  reputation the player earned but never had credited, and a value outside (-1, 1) can only
+     *  come from a hand-edited or corrupted save. */
+    fun resolveReputationRemainder(saved: Map<String, Float>): Map<Faction, Float> =
+        Faction.entries.mapNotNull { faction ->
+            val value = saved[faction.name] ?: return@mapNotNull null
+            if (value > -1f && value < 1f) faction to value else null
+        }.toMap()
 
     fun resolveWarehouses(data: GameSaveData): Map<String, Warehouse> {
         val result = mutableMapOf<String, Warehouse>()
