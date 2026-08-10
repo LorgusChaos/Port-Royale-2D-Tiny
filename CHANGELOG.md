@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.4.5.7] - 2026-08-10
+
+### Added
+- Home waters (M11c): the sea has regions now. Every ship lives around an *anchor* - its home
+  port, or the lair for pirates - and weights where it sails next by distance from that anchor
+  rather than from wherever it currently is. That distinction is the whole mechanic: weighting
+  from the current position gives short hops but an unbounded walk, which is aimless wandering at
+  a slower pace, while a fixed anchor produces an orbit, and an orbit is what reads as territory.
+  Spanish colours now dominate the Main, the Lesser Antilles are French, Dutch and English, and a
+  long crossing visibly changes company.
+- It stays a leaning rather than a border: roughly one voyage in eight ignores the flag entirely,
+  so a ship of any power can turn up anywhere - just not in equal numbers.
+- **The Sea of Pirates** - the northern Gulf of Mexico, fogged and named on the map, where no port
+  stands. Pirates sortie from it to prowl a harbour's outskirts and then sail home again. The
+  placement is the point: a lair on a shipping crossroads is not a source of danger but a
+  permanent blockade of the trade passing through it, and this was the one large stretch of map
+  doing nothing at all. Measured against the alternatives - the classic havens all turned out to
+  sit *between* ports, and Tortuga is inside Cap-Francais's safe-harbour radius.
+- Warships patrol out from their home port and back, instead of hopping port to port
+  indistinguishably from traders.
+- Pirates now turn back at the edge of a port's safe water rather than sailing into it. They used
+  to finish every leg somewhere they could do nothing by rule - half a pirate's patrol spent being
+  harmless.
+- The world is already in motion when a game begins: ships start partway through voyages, half of
+  the warships and pirates on the way back rather than out. Previously all thirty-six cast off
+  from harbour on the first frame, which read as a simulation being switched on.
+
+### Fixed
+- Ships no longer run aground. A ship counts as arrived anywhere within sixteen units of a
+  waypoint, but around a coastal port only about half of that circle is actually sea - so ships
+  routinely finished a leg on the beach and sat there. Ships pushed sideways by crowding could
+  also cut a corner over a headland on the way to the next waypoint. Route movement now refuses to
+  enter land and asks for a fresh route instead. This was invisible until the watchdog added in
+  0.4.5.6 reported it dozens of times in a ten-minute session.
+- A ship that somehow ends up ashore is put back on the water and logged, rather than being stuck
+  for the rest of the session: the pathfinder refuses to plan a route that *starts* on land, so a
+  beached ship could neither move nor be given anywhere to go.
+- Ships converging on the same harbour no longer block each other out of it. Separation holds
+  ships a full sprite apart, which is more than twice the distance at which arrival counts, so
+  several ships heading for one port shoved each other out of range and milled about outside.
+  A ship on final approach is now exempt - crowding is cosmetic, arriving is not.
+
 ## [0.4.5.6] - 2026-08-10
 
 ### Added

@@ -12,6 +12,7 @@ import com.badlogic.gdx.graphics.OrthographicCamera
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.BitmapFont
+import com.badlogic.gdx.graphics.g2d.GlyphLayout
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.MathUtils
@@ -71,6 +72,7 @@ import com.portroyale.tiny.ui.WarehouseUI
 import com.portroyale.tiny.world.GameClock
 import com.portroyale.tiny.world.GameSpeed
 import com.portroyale.tiny.world.MapProjection
+import com.portroyale.tiny.world.PirateSea
 import com.portroyale.tiny.world.Ports
 import com.portroyale.tiny.world.SeaEventPoint
 import com.portroyale.tiny.world.SeaEventSlot
@@ -138,6 +140,26 @@ private const val SHIP_SEPARATION_RADIUS = 34f
 /** World units per second of separation drift at full overlap. Deliberately well below sailing
  *  speed - this is meant to keep hulls from sharing a pixel, not to shove them around. */
 private const val SHIP_SEPARATION_STRENGTH = 26f
+/** How much of the arrival radius counts as "on final approach", where separation stops applying.
+ *  Has to exceed SHIP_SEPARATION_RADIUS / AI_SHIP_ARRIVE_THRESHOLD, or crowding could still hold a
+ *  ship just outside its own destination. */
+private const val DOCKING_APPROACH_MULTIPLIER = 3f
+
+/** How fast a destination's appeal falls off with distance from a ship's anchor, in world units.
+ *  Bigger means flatter, and flat is the old aimless wandering. */
+private const val HOME_WATERS_SCALE = 500f
+/** How often a ship ignores its own flag entirely when choosing where to go - what keeps home
+ *  waters a bias rather than a border. */
+private const val FOREIGN_PORT_CHANCE = 0.12f
+/** Where a pirate loiters, as a multiple of a port's safe radius: outside it, but within sight. */
+private const val PROWL_RADIUS_MULTIPLIER = 1.25f
+/** How far along its opening route a ship may be placed at start-up. Not 0 or 1: a ship exactly
+ *  at either end is a ship in harbour, which is the look this avoids. */
+private const val SCATTER_MIN_PROGRESS = 0.08f
+private const val SCATTER_MAX_PROGRESS = 0.92f
+private val PIRATE_SEA_FOG = Color(0.16f, 0.14f, 0.20f, 0.34f)
+private val PIRATE_SEA_LABEL_COLOR = Color(0.90f, 0.87f, 0.80f, 0.85f)
+private const val PIRATE_SEA_LABEL_SCALE = 2.2f
 
 /** How often the invariant checks sweep the world - see WorldWatchdog. */
 private const val WATCHDOG_INTERVAL_SECONDS = 5f
@@ -230,6 +252,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     private lateinit var shapeRenderer: ShapeRenderer
     private lateinit var batch: SpriteBatch
+    private lateinit var fogTexture: Texture
     private lateinit var portLabelFont: BitmapFont
     private var portLabelBaseLineHeight = 0f
     private lateinit var mapTexture: Texture
@@ -348,6 +371,14 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         // Same TTF as the rest of the game's UI (see UiSkinFactory), but its OWN independent
         // BitmapFont instance - map labels rescale every frame based on camera.zoom, and sharing
         // UiSkinFactory's font object would drag every Scene2D screen's text along with it.
+        // One white pixel, stretched and tinted wherever a flat translucent area is wanted.
+        // Cheaper than a shape renderer and immune to its persistent projection-matrix state.
+        val fogPixmap = Pixmap(1, 1, Pixmap.Format.RGBA8888)
+        fogPixmap.setColor(Color.WHITE)
+        fogPixmap.fill()
+        fogTexture = Texture(fogPixmap)
+        fogPixmap.dispose()
+
         portLabelFont = UiSkinFactory.generateFont(42)
         portLabelFont.color = Color.BLACK
         portLabelBaseLineHeight = portLabelFont.data.lineHeight
@@ -531,6 +562,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         batch.projectionMatrix = camera.combined
         batch.begin()
         batch.draw(mapTexture, 0f, 0f, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT)
+        drawPirateSea()
         batch.end()
 
         batch.begin()
@@ -542,6 +574,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             if (shipVisible) drawShip()
             drawMarketIndicators()
         }
+        drawPirateSeaLabel()
         drawPortLabels()
         if (gameActive) drawHoveredGoodTooltip()
         batch.end()
@@ -1061,26 +1094,87 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     /** One trade + one military ship per faction patrolling that faction's own ports, plus a
      *  handful of pirates wandering between any port - a rough population, not simulated economy. */
+    /** Every ship is anchored where it is born: a faction ship to the harbour it sailed out of, a
+     *  pirate to the lair. That anchor is what gives it home waters - see [retargetAiShip]. */
     private fun spawnAiShips() {
         for (faction in Faction.entries) {
             val homePorts = resolvedPorts.filter { it.port.faction == faction }
             if (homePorts.isEmpty()) continue
             repeat(TRADE_SHIPS_PER_FACTION) {
-                aiShips.add(AiShipFactory.trade(faction, homePorts.random().approachPoint.cpy()))
+                val home = GameRandom.pick(homePorts).approachPoint
+                aiShips.add(AiShipFactory.trade(faction, home.cpy()).anchoredAt(home))
             }
             repeat(MILITARY_SHIPS_PER_FACTION) {
-                aiShips.add(AiShipFactory.military(faction, homePorts.random().approachPoint.cpy()))
+                val home = GameRandom.pick(homePorts).approachPoint
+                aiShips.add(AiShipFactory.military(faction, home.cpy()).anchoredAt(home))
             }
         }
+        val lair = pirateLairAnchor()
         repeat(PIRATE_SHIP_COUNT) {
-            aiShips.add(AiShipFactory.pirate(resolvedPorts.random().approachPoint.cpy()))
+            aiShips.add(AiShipFactory.pirate(lair.cpy()).anchoredAt(lair))
         }
+        scatterAlongRoutes()
+        GameLog.log(
+            GameLog.Category.AI,
+            "spawned ${aiShips.size} ships; pirate lair at ${lair.x.toInt()}, ${lair.y.toInt()}"
+        )
+    }
+
+    /**
+     * Starts every ship partway through a voyage it is already making, rather than sitting in
+     * harbour waiting for the first frame. Otherwise the world opens with thirty-six ships casting
+     * off in unison - which reads as a simulation being switched on, not as a sea that was busy
+     * before the player showed up.
+     *
+     * Done by giving each ship a real route and then dropping it somewhere along it, instead of
+     * simulating a few minutes of movement at load time: one pathfinding call per ship either way,
+     * but no stall while the game runs the world at ten times speed before showing anything.
+     */
+    private fun scatterAlongRoutes() {
+        for (ship in aiShips) {
+            retargetAiShip(ship)
+            if (ship.path.isEmpty()) continue
+
+            // Half the warships and pirates are on the way BACK. Reversing the route works
+            // because it is the same chain of water cells read the other way; the ship then
+            // arrives at its anchor and carries on normally. outbound goes back to true because
+            // it means "the next leg heads out", and retargetAiShip has already flipped it.
+            if (ship.role != AiShipRole.TRADE && GameRandom.nextFloat() < 0.5f) {
+                ship.path = ship.path.reversed()
+                ship.outbound = true
+            }
+
+            val progress = GameRandom.nextFloat(SCATTER_MIN_PROGRESS, SCATTER_MAX_PROGRESS)
+            val index = ((ship.path.size - 1) * progress).toInt().coerceIn(0, ship.path.size - 1)
+            ship.pathIndex = index
+            ship.position.set(ship.path[index])
+            ship.path.getOrNull(index + 1)?.let { next ->
+                ship.headingDeg = MathUtils.atan2(next.y - ship.position.y, next.x - ship.position.x) *
+                    MathUtils.radDeg
+            }
+        }
+    }
+
+    private fun AiShip.anchoredAt(point: Vector2): AiShip {
+        anchor = point.cpy()
+        return this
+    }
+
+    /** The lair itself, snapped to sailable water. It was measured to be open sea, but the map is
+     *  due to be redrawn in M16 and a hand-drawn coastline could move under it. */
+    private fun pirateLairAnchor(): Vector2 {
+        val lair = PirateSea.lair
+        return worldMap.findNearestWater(lair.x, lair.y) ?: lair
     }
 
     private fun updateAiShips(delta: Float) {
         val myTier = shipTier(player.ship)
         for (ship in aiShips) {
             if (ship.giveUpCooldown > 0f) ship.giveUpCooldown -= delta
+            // Self-healing, because prevention alone is not enough: A* refuses to plan a route
+            // that STARTS on land, so a ship that has somehow ended up ashore can neither move
+            // nor be given anywhere to go, and would sit there for the rest of the session.
+            if (!worldMap.isWater(ship.position.x, ship.position.y)) refloat(ship)
             if (ship.role == AiShipRole.PIRATE && ship.tier < myTier &&
                 shipPosition.dst(ship.position) < PIRATE_FLEE_AWARENESS_RADIUS
             ) {
@@ -1101,9 +1195,21 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             }
             val nx = dx / dist
             val ny = dy / dist
-            ship.position.x += nx * ship.speed * delta
-            ship.position.y += ny * ship.speed * delta
-            ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
+            val nextX = ship.position.x + nx * ship.speed * delta
+            val nextY = ship.position.y + ny * ship.speed * delta
+            if (worldMap.isWater(nextX, nextY)) {
+                ship.position.set(nextX, nextY)
+                ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
+            } else {
+                // The route was laid over water, but a ship does not stay exactly on it: it counts
+                // as arrived anywhere within AI_SHIP_ARRIVE_THRESHOLD of a waypoint, and
+                // separateAiShips nudges it sideways when crowded. Around a coastal port only
+                // about half of that arrival circle is actually sea, so running blindly toward
+                // the next waypoint from a displaced position drove ships up the beach - which is
+                // what the watchdog kept reporting. Ask for a fresh route instead of sailing
+                // overland.
+                retargetAiShip(ship)
+            }
         }
         // After everyone has moved, not during: separating mid-loop would push ships that have
         // already had their turn this frame and leave the result dependent on list order.
@@ -1253,6 +1359,10 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             if (nearest.pursuitBlockedFor > 0f) append(" blocked=%.1fs".format(nearest.pursuitBlockedFor))
             if (nearest.giveUpCooldown > 0f) append(" cooldown=%.1fs".format(nearest.giveUpCooldown))
             append(" path=").append(nearest.pathIndex).append('/').append(nearest.path.size)
+            // Without the anchor there is no way to tell home waters are working short of
+            // watching one ship for half an hour.
+            append(" anchor=").append(nearest.anchor.x.toInt()).append(',').append(nearest.anchor.y.toInt())
+            append(if (nearest.outbound) " outbound" else " homeward")
         }
         return buildString {
             appendLine("F3 debug   seed=${GameRandom.seed}")
@@ -1358,6 +1468,21 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         }
     }
 
+    /** Puts a beached ship back on the nearest water and clears its stale route. Logged, not
+     *  silent: needing this is a symptom, and if it starts happening often the cause is worth
+     *  finding rather than papering over. */
+    private fun refloat(ship: AiShip) {
+        val water = worldMap.findNearestWater(ship.position.x, ship.position.y) ?: return
+        GameLog.log(
+            GameLog.Category.AI,
+            "refloated ${ship.displayName} from ${ship.position.x.toInt()}, ${ship.position.y.toInt()} " +
+                "to ${water.x.toInt()}, ${water.y.toInt()}"
+        )
+        ship.position.set(water)
+        ship.path = emptyList()
+        ship.pathIndex = 0
+    }
+
     private fun abandonPursuit(ship: AiShip) {
         ship.isPursuing = false
         ship.pursuingCaptain = null
@@ -1398,10 +1523,22 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 val push = overlap * SHIP_SEPARATION_STRENGTH * delta
                 val nx = dx / distance * push
                 val ny = dy / distance * push
-                nudgeIfWater(a, -nx, -ny)
-                nudgeIfWater(b, nx, ny)
+                // A ship on its final approach is exempt. Separation keeps ships a full sprite
+                // apart, which is more than twice the distance at which arriving counts - so
+                // without this, two ships heading for the same harbour shove each other out of
+                // arrival range and mill about outside it forever. Crowding is cosmetic;
+                // arriving is not, so arriving wins.
+                if (!isDocking(a)) nudgeIfWater(a, -nx, -ny)
+                if (!isDocking(b)) nudgeIfWater(b, nx, ny)
             }
         }
+    }
+
+    /** True while a ship is on the last stretch to its current waypoint, where being nudged aside
+     *  would cost it the arrival - see separateAiShips. */
+    private fun isDocking(ship: AiShip): Boolean {
+        val target = ship.path.getOrNull(ship.pathIndex) ?: return false
+        return target.dst(ship.position) < AI_SHIP_ARRIVE_THRESHOLD * DOCKING_APPROACH_MULTIPLIER
     }
 
     private fun nudgeIfWater(ship: AiShip, dx: Float, dy: Float) {
@@ -1433,17 +1570,70 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     /** Single-port factions (France, Netherlands) would otherwise have nowhere else to "patrol"
      *  to and just sit stuck re-targeting their own home port forever - fall back to any port,
      *  and always exclude wherever the ship already is, so it actually goes somewhere new. */
+    /**
+     * Where a ship goes next, and the reason the sea stopped looking aimless. This used to be one
+     * uniform random pick among a faction's ports - and since M14b a faction spans the whole map,
+     * so an English ship was as likely to cross to Belize as to potter around Barbados. Nothing
+     * had a territory.
+     *
+     * Three behaviours now, one per role:
+     *  - a trader goes port to port, weighted toward its own home waters (see [weightedPort]);
+     *  - a warship patrols out and back, so its faction's waters are somewhere it visibly stays;
+     *  - a pirate sorties from its lair to prowl a port's outskirts, then goes home again.
+     */
     private fun retargetAiShip(ship: AiShip) {
-        val sameFaction = if (ship.faction != null) resolvedPorts.filter { it.port.faction == ship.faction } else emptyList()
-        val pool = if (sameFaction.size > 1) sameFaction else resolvedPorts
-        val candidates = pool.filter { it.approachPoint.dst(ship.position) > AI_SHIP_ARRIVE_THRESHOLD * 2 }
-            .ifEmpty { resolvedPorts }
-        val destination = candidates.random().approachPoint
+        val destination = when (ship.role) {
+            AiShipRole.TRADE -> weightedPort(ship)?.approachPoint
+            AiShipRole.MILITARY -> if (ship.outbound) weightedPort(ship)?.approachPoint else ship.anchor
+            AiShipRole.PIRATE -> if (ship.outbound) weightedPort(ship)?.let { prowlPointOutside(it) } else ship.anchor
+        } ?: return
+        if (ship.role != AiShipRole.TRADE) ship.outbound = !ship.outbound
+
         val newPath = worldMap.findPath(ship.position, destination)
         if (!newPath.isNullOrEmpty()) {
             ship.path = newPath
             ship.pathIndex = 0
         }
+    }
+
+    /**
+     * Picks a port with a probability that falls off with distance from the ship's [AiShip.anchor]
+     * - close to home is likely, the far side of the map is not, and nothing is impossible. A hard
+     * radius was rejected: it draws a visible border on the map and can leave a ship at the edge
+     * of its own territory with no candidates at all.
+     *
+     * [FOREIGN_PORT_CHANCE] of the time the faction filter is dropped entirely, which is what
+     * keeps home waters a leaning rather than a fence - ships of every flag do turn up everywhere,
+     * just not in equal numbers.
+     */
+    private fun weightedPort(ship: AiShip): ResolvedPort? {
+        val ownWaters = ship.faction?.takeIf { GameRandom.nextFloat() >= FOREIGN_PORT_CHANCE }
+            ?.let { faction -> resolvedPorts.filter { it.port.faction == faction } }
+            ?.takeIf { it.size > 1 }
+        val pool = ownWaters ?: resolvedPorts
+        val candidates = pool.filter { it.approachPoint.dst(ship.position) > AI_SHIP_ARRIVE_THRESHOLD * 2 }
+            .ifEmpty { resolvedPorts }
+        if (candidates.isEmpty()) return null
+        return GameRandom.pickWeighted(candidates) { port ->
+            val distance = port.approachPoint.dst(ship.anchor)
+            val falloff = 1f + distance / HOME_WATERS_SCALE
+            1f / (falloff * falloff)
+        }
+    }
+
+    /**
+     * A spot just outside a port's safe harbour - where a pirate can actually do something.
+     * Sailing to the approach point itself, as they used to, put them where no encounter can
+     * trigger by rule: half a pirate's patrol was spent being harmless.
+     */
+    private fun prowlPointOutside(port: ResolvedPort): Vector2? {
+        val angle = GameRandom.nextFloat(0f, MathUtils.PI2)
+        val radius = PORT_SAFE_RADIUS * PROWL_RADIUS_MULTIPLIER
+        val target = Vector2(
+            port.worldPos.x + MathUtils.cos(angle) * radius,
+            port.worldPos.y + MathUtils.sin(angle) * radius
+        )
+        return worldMap.findNearestWater(target.x, target.y)
     }
 
     /** A pirate only picks a fight it can plausibly win: it engages a ship whose tier is at most
@@ -1907,17 +2097,21 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     /** Keeps the ambient population roughly constant - a sunk ship is replaced by a fresh one of
      *  the same role/faction rather than slowly depleting the world. */
+    /** A replacement comes from where its kind lives, not from wherever there happens to be a
+     *  port: a new pirate sails out of the Sea of Pirates like the one it replaces. */
     private fun respawnReplacement(defeated: AiShip) {
         val spot = if (defeated.faction != null) {
-            resolvedPorts.filter { it.port.faction == defeated.faction }.randomOrNull()?.approachPoint
+            resolvedPorts.filter { it.port.faction == defeated.faction }
+                .let { if (it.isEmpty()) null else GameRandom.pick(it) }?.approachPoint
         } else {
-            resolvedPorts.randomOrNull()?.approachPoint
+            pirateLairAnchor()
         } ?: return
         val replacement = when (defeated.role) {
             AiShipRole.TRADE -> AiShipFactory.trade(defeated.faction!!, spot.cpy())
             AiShipRole.MILITARY -> AiShipFactory.military(defeated.faction!!, spot.cpy())
             AiShipRole.PIRATE -> AiShipFactory.pirate(spot.cpy())
         }
+        replacement.anchor = spot.cpy()
         aiShips.add(replacement)
     }
 
@@ -2019,6 +2213,38 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     /** World-space height a port label renders at right now, for drawMarketIndicators() to stack
      *  the goods row underneath it. */
     private fun portLabelWorldHeight(): Float = PORT_LABEL_TARGET_PX * worldUnitsPerScreenPixel()
+
+    /**
+     * The fog over the Sea of Pirates, drawn straight after the map and under everything else.
+     *
+     * A flat translucent rectangle through the SpriteBatch, deliberately - not ShapeRenderer,
+     * whose projection matrix is persistent mutable state that has leaked between draw calls in
+     * this file before (see CLAUDE.md). A proper ragged-edged fog is artwork, and the map is being
+     * redrawn in M16 anyway; painting it twice would be the only thing worse than a rectangle.
+     */
+    private fun drawPirateSea() {
+        val origin = PirateSea.fogOrigin
+        batch.color = PIRATE_SEA_FOG
+        batch.draw(fogTexture, origin.x, origin.y, PirateSea.fogWidth, PirateSea.fogHeight)
+        batch.color = Color.WHITE
+    }
+
+    /** The Sea's name, drawn with the port-label machinery so it holds a constant on-screen size
+     *  at any zoom, and larger than a port so it reads as a region rather than a place. */
+    private fun drawPirateSeaLabel() {
+        val origin = PirateSea.fogOrigin
+        val scale = portLabelWorldHeight() * PIRATE_SEA_LABEL_SCALE / portLabelBaseLineHeight
+        portLabelFont.data.setScale(scale)
+        portLabelFont.color = PIRATE_SEA_LABEL_COLOR
+        val layout = GlyphLayout(portLabelFont, PirateSea.NAME)
+        portLabelFont.draw(
+            batch,
+            PirateSea.NAME,
+            origin.x + PirateSea.fogWidth / 2f - layout.width / 2f,
+            origin.y + PirateSea.fogHeight / 2f + layout.height / 2f
+        )
+        portLabelFont.color = Color.BLACK
+    }
 
     private fun drawPortLabels() {
         // Font SCALE is derived from a target ON-SCREEN pixel text height every frame (see
@@ -2280,6 +2506,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     override fun dispose() {
         shapeRenderer.dispose()
         batch.dispose()
+        fogTexture.dispose()
         portLabelFont.dispose()
         mapTexture.dispose()
         shipTextures.values.forEach { it.dispose() }

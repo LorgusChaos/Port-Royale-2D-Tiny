@@ -33,6 +33,22 @@ class AiShip(
     var path: List<Vector2> = emptyList()
     var pathIndex: Int = 0
 
+    /**
+     * The point this ship lives around - its home port for a faction ship, the lair for a pirate.
+     * Destinations are weighted by distance from HERE rather than from wherever the ship happens
+     * to be, and that distinction is the whole mechanic: weighting from the current position
+     * gives short hops but an unbounded walk, which is just aimless wandering at a slower pace.
+     * Weighting from a fixed anchor produces an orbit, and an orbit is what reads as territory.
+     */
+    var anchor: Vector2 = position.cpy()
+
+    /**
+     * Which half of an out-and-back cycle this ship is on. Warships patrol away from their home
+     * port and return to it; pirates sortie from the lair, prowl a port's outskirts and go home
+     * again. Traders ignore it - they genuinely do go port to port for a living.
+     */
+    var outbound: Boolean = true
+
     /** World-seconds (see PortRoyaleGame.updateAiShips - already scaled by GameSpeed, same as
      *  SeaEventSlot.respawnTimer) until this ship will attempt to engage its last failed target
      *  again. Set on a failed catch (player fled combat, or a fleet captain evaded) - see

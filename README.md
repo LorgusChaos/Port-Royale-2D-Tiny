@@ -3,7 +3,7 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5.6 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.5.7 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
 > ships that actually hunt down a target they've spotted, a small hired fleet of captains who
 > fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
@@ -13,7 +13,7 @@ combat, deliberately kept small in scope for a solo/hobby project.
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5.6
+## What's here in v0.4.5.7
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -73,13 +73,23 @@ franchise's creators or publishers.
   in real time. Standing is not just a price modifier either: an unfriendly navy will pick a
   fight it thinks it wins, while a hostile one hunts you regardless. Your hired captains' sales
   count exactly like your own, so delegating trade never means dodging its consequences.
-- A living map: trade and military ships patrol between their faction's own ports; pirates wander
-  between any port at a random tier (1-5, hull size/speed and reward scaled to match) and flee
-  rather than engage a ship clearly stronger than them, and vice versa - every AI ship's sailing
-  speed comes from the same ship-type table the player and hired captains use, not a separate
-  hand-picked number. Peaceful ships can be deliberately hunted down for loot. Ports are a safe
-  harbor - no encounter ever triggers near one. Ships visibly dock - they disappear into a port
-  on arrival (a slow purple glow marks where) and reappear only once you set off again.
+- A living map with regions rather than uniform traffic. Every ship lives around an anchor - its
+  home port, or for pirates the lair - and picks where to go next weighted by distance from it, so
+  Spanish colours dominate the Main, the Lesser Antilles are French, Dutch and English, and a
+  crossing between them visibly changes company. It is a leaning, not a border: roughly one voyage
+  in eight ignores the flag entirely, so anyone can turn up anywhere. Warships patrol out from
+  their home port and back rather than criss-crossing the map like traders.
+- **The Sea of Pirates**, the fogged and named stretch of the northern Gulf where no port stands.
+  Pirates sortie from it to prowl the outskirts of a harbour, then sail home again. It sits there
+  deliberately: a lair on a shipping crossroads is not a source of danger but a permanent blockade
+  of the trade that passes through it, and that empty third of the map was doing nothing.
+- Pirates roll a random tier (1-5, hull size/speed and reward scaled to match) and flee rather than
+  engage a ship clearly stronger than them, and vice versa - every AI ship's sailing speed comes
+  from the same ship-type table the player and hired captains use, not a separate hand-picked
+  number. Peaceful ships can be deliberately hunted down for loot. Ports are a safe harbor - no
+  encounter ever triggers near one. Ships visibly dock - they disappear into a port on arrival (a
+  slow purple glow marks where) and reappear only once you set off again. The world is already in
+  motion when a game starts: ships begin partway through voyages, not all casting off at once.
 - Random sea events: 30 invisible, one-time locations scattered across the water (respawning
   elsewhere after a delay once triggered) for classic encounters - a flavor-text bottle, a gold
   or goods chest, or a castaway who pays for a lift to a random port. Shown in a dismissible,
@@ -276,9 +286,27 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       caught anyway *(this release - "more ships on the map" and a ship-stat balance pass are
       pure numbers with no shape decision behind them, deferred to be eyeballed alongside M15's
       own balance pass rather than guessed at now)*
+- [x] **M11c** - home waters and pirate lairs: AI ships used to pick their next port uniformly at
+      random among their faction's, and since M14b a faction spans the whole map, so nothing had a
+      territory. Each ship now has an *anchor* it lives around - its home port, or the lair for
+      pirates - and weights its next destination by distance from that anchor rather than from
+      wherever it happens to be, which is the distinction that turns a random walk into an orbit.
+      A flat one-in-eight chance ignores the flag entirely, keeping a territory a bias rather than
+      a fence. Warships patrol out and back; pirates sortie from the Sea of Pirates and return to
+      it. The lair sits in the empty northern Gulf on purpose - a nest on a shipping crossroads is
+      a permanent blockade of that trade, not a source of danger *(this release)*
+- [ ] **M11d** - regional events and a military response: "pirate activity reported between Port
+      Royal and Cartagena" puts a small band of pirates into a corridor; the faction's warships
+      break off patrol and converge; encounters resolve instantly with the same combat maths, the
+      loser sinks visibly, survivors run for their lair, and the event fades with a notice. NPC
+      versus NPC fighting happens only inside an active event - navies and pirates are always
+      hostile, and letting them fight everywhere would grind the pirate population down and make
+      events meaningless
 - [ ] **M11b** - route safety: a simple track record per port pair ("N safe trips, M threat
       encounters"), shown when assigning a captain's route - deliberately not a numeric
-      "danger score", to stay consistent with not handing the player a full picture upfront
+      "danger score", to stay consistent with not handing the player a full picture upfront.
+      Moved after M11c/M11d: while danger is uniformly random, a track record would be a
+      recording of noise
 - [ ] **M12** - expand the Commandant's Office beyond reputation + loans, including tying
       loans to fleet expansion (borrowing specifically to afford a second ship/captain sooner)
 - [x] **M14** - faction conflict: selling in a port raises standing with its faction and lowers

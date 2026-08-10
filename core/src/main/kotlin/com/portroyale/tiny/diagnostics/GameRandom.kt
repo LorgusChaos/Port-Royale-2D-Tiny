@@ -52,6 +52,26 @@ object GameRandom {
     fun <T> pick(items: List<T>): T = items[random.nextInt(items.size)]
 
     /**
+     * Picks one item with a probability proportional to [weight]. Used to give AI ships home
+     * waters: a destination near a ship's anchor is likelier than a distant one, without the hard
+     * edge a radius cutoff would produce.
+     *
+     * Non-positive weights are treated as zero. If every weight is zero the choice falls back to
+     * a plain uniform pick, so a caller can never be left without a destination.
+     */
+    fun <T> pickWeighted(items: List<T>, weight: (T) -> Float): T {
+        val weights = items.map { weight(it).coerceAtLeast(0f) }
+        val total = weights.sum()
+        if (total <= 0f) return pick(items)
+        var roll = random.nextFloat() * total
+        for (index in items.indices) {
+            roll -= weights[index]
+            if (roll <= 0f) return items[index]
+        }
+        return items.last() // only reachable through float rounding
+    }
+
+    /**
      * Runs [block] on a known seed and restores the previous sequence afterwards. This is what
      * lets a test assert an exact outcome of something that is random in play - and what lets a
      * reported seed be replayed without disturbing anything else.
