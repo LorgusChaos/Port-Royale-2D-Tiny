@@ -1,5 +1,64 @@
 # Changelog
 
+## [0.4.5.6] - 2026-08-10
+
+### Added
+- World expansion (M14b): twenty-eight ports instead of twelve, and a per-faction split of
+  9/8/6/5 instead of 7/3/1/1. The split is the point - M14's reputation runs off each power's
+  share of your sales, so a faction holding a single harbour could only be courted by pushing a
+  quarter of all trade through that one port, which sank France and the Netherlands structurally
+  rather than by anything the player chose.
+- The empty western third of the map is filled: Campeche, Trujillo, Belize Town, Roatan,
+  Bluefields and Old Providence. Not with Spain alone, though the region historically was
+  Spanish - the Bay Islands, the Mosquito Coast and the Old Providence colony were real English
+  footholds in Spain's own sea, which makes the west a contested place rather than merely a
+  populated one.
+- More ships at sea to match the bigger map: four traders and three warships per faction, eight
+  pirates. Roughly the same density per port as before.
+- A diagnostics folder, `PortRoyaleTiny/diagnostics/` next to your saves, holding everything the
+  game records about itself - session logs, crash reports and screenshots. One folder to zip and
+  send.
+- Crash reports that are worth reading: the machine (including GPU and driver version), the state
+  of the world at that instant, the full exception chain, and the last events logged before it.
+- `F3` toggles a developer overlay - frames per second, the session's random seed, and the nearest
+  AI ship's real state (pursuing, patrolling, or blocked and for how long). `F12` saves a
+  screenshot; one is also attempted automatically when the game crashes.
+- A watchdog that notices the world entering states it should not: a ship aground, a ship that has
+  stopped moving away from port, a coordinate gone non-finite, a captain holding cargo that is not
+  any good. Each is reported once rather than every sweep.
+- All randomness now runs through a single seeded generator, and the seed is written to the log
+  and shown in the overlay. A fight or a spawn that went strangely can be replayed instead of
+  reconstructed from a description.
+- `./gradlew.bat :core:simulate` - runs the trading economy headless for thirty hours of simulated
+  play in about a second and prints where wealth and standing end up. Built for the balance pass:
+  changing a constant and seeing the whole curve move beats playing for an hour and going on how
+  it felt.
+
+### Fixed
+- Port labels no longer disappear for good after minimising the window. A minimised window reports
+  a zero size, which divided by zero when working out on-screen text scale; the resulting infinity
+  reached the font's scale, and because that call is relative to the previous scale, a single bad
+  frame corrupted the font's metrics permanently.
+- A pursuing ship can no longer freeze in place. Pursuit steers in a straight line with no route
+  around obstacles, and on meeting land it reported the move as handled - which also skipped the
+  ship's ordinary patrol movement, leaving it stuck forever chasing something it could not reach.
+  It now falls back to its patrol route and abandons the chase if the way stays blocked, and it
+  breaks off outright once its quarry reaches the safety of a port.
+- Ships no longer pile up on the same spot. Several pursuers converging on one target used to end
+  up at identical coordinates, drawn on top of each other and jittering; they now ease apart.
+- Clicking the game-speed button no longer also lays in a new course. Map clicks were read by
+  polling the mouse in the render loop, which cannot know a click has already been spent on a
+  button.
+- The Dutch ports no longer crowd each other on the map: Bonaire is replaced by Tucacas, a real
+  Dutch contraband settlement on the Venezuelan mainland.
+
+### Internal
+- `PortReachabilityTest` checks against the real map image that every port has a water approach
+  and that the whole network is one connected sea. This was an unreported failure mode: a port
+  placed too far inland silently falls back to a dry-land position and no route is ever built to
+  it - no crash, no log, just a harbour nobody can visit. It found two immediately (Belize behind
+  its reef, and the Maracaibo the design doc suggested, which is an enclosed basin).
+
 ## [0.4.5.5] - 2026-08-10
 
 ### Added

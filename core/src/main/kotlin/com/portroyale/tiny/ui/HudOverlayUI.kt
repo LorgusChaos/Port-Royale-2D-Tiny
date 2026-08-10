@@ -67,6 +67,8 @@ class HudOverlayUI(
     private val lastReputation = mutableMapOf<Faction, Int>()
     private var reputationExpanded = true
 
+    private val debugLabel = Label("", skin)
+
     init {
         val root = Table()
         root.setFillParent(true)
@@ -125,6 +127,14 @@ class HudOverlayUI(
         infoRoot.add(reputationGroup).left().padTop(10f)
 
         stage.addActor(infoRoot)
+
+        val debugRoot = Table()
+        debugRoot.setFillParent(true)
+        debugRoot.bottom().left().padBottom(16f).padLeft(20f)
+        debugLabel.setFontScale(0.8f)
+        debugLabel.isVisible = false
+        debugRoot.add(debugLabel).left()
+        stage.addActor(debugRoot)
     }
 
     /** Four horizontal bars, one per colonial power, running from -100 on the left through zero
@@ -204,6 +214,13 @@ class HudOverlayUI(
 
     private fun reputationToX(value: Int): Int =
         (((value + 100) / 200f) * REP_BAR_WIDTH).toInt().coerceIn(0, REP_BAR_WIDTH - 1)
+
+    /** The F3 developer overlay - null hides it. Anchored bottom-left, out of the way of both the
+     *  info column and the minimap stack. */
+    fun setDebugText(text: String?) {
+        debugLabel.isVisible = text != null
+        if (text != null) debugLabel.setText(text)
+    }
 
     fun setDate(text: String) {
         dateLabel.setText(text)

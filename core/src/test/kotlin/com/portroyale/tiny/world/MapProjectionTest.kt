@@ -97,7 +97,41 @@ class PortsTest {
 
     @Test
     fun `the map has the full set of trading ports`() {
-        assertEquals(12, Ports.ALL.size)
+        assertEquals(28, Ports.ALL.size)
+    }
+
+    @Test
+    fun `no colonial power is left with too few harbours to court`() {
+        // M14 reputation runs off each faction's share of sales revenue, and a power holding one
+        // port could only be kept friendly by pushing a quarter of all trade through that single
+        // harbour - which made two of the four sink structurally rather than by the player's
+        // choice. Three is the floor at which courting a power becomes a routing decision.
+        for (faction in Faction.entries) {
+            val held = Ports.ALL.count { it.faction == faction }
+            assertTrue(held >= 3, "$faction holds only $held port(s)")
+        }
+    }
+
+    @Test
+    fun `ports are far enough apart to be told apart`() {
+        // What this guards against is a second port inside the first one's arrival trigger -
+        // Kingston, for instance, sits a couple of kilometres from Port Royal and would be the
+        // same dot and the same arrival. Three arrival radii is comfortably clear of that.
+        // Deliberately not stricter: Curacao and Bonaire are ~50km apart in reality and both
+        // genuinely Dutch, and a rounder threshold would have thrown out real geography to no
+        // purpose. Labels crowding each other on screen is a rendering problem, and belongs to
+        // the map/UI pass in M16 rather than to the port data.
+        val minimumSeparation = 48f
+        val positions = Ports.ALL.map { it.name to MapProjection.project(it.lat, it.lon) }
+        for (i in positions.indices) {
+            for (j in i + 1 until positions.size) {
+                val distance = positions[i].second.dst(positions[j].second)
+                assertTrue(
+                    distance > minimumSeparation,
+                    "${positions[i].first} and ${positions[j].first} are only $distance apart"
+                )
+            }
+        }
     }
 
     @Test
@@ -127,9 +161,13 @@ class PortsTest {
     }
 
     @Test
-    fun `spain holds the majority of the coastline, as it historically did`() {
-        val spanish = Ports.ALL.count { it.faction == Faction.SPAIN }
-        assertTrue(spanish > Ports.ALL.size / 2, "Spain should be the dominant power on this map")
+    fun `spain still holds more of the coastline than anyone else`() {
+        val byFaction = Faction.entries.associateWith { faction -> Ports.ALL.count { it.faction == faction } }
+        val spanish = byFaction.getValue(Faction.SPAIN)
+        for ((faction, held) in byFaction) {
+            if (faction == Faction.SPAIN) continue
+            assertTrue(spanish > held, "Spain ($spanish) should out-hold $faction ($held)")
+        }
     }
 
     @Test

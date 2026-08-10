@@ -79,6 +79,31 @@ splits them so review attention goes where it's expensive.
 
 `Pixmap` (and so `WorldMap`) needs libGDX natives but no GL context — `GdxNativesLoader.load()`
 in a `@BeforeTest` is enough, hence `gdx-platform:natives-desktop` as a `testRuntimeOnly` dep.
+`PortReachabilityTest` loads the *real* map PNG this way (plain `File.readBytes()` →
+`Pixmap(bytes, …)`, since `Gdx.files` needs a backend).
+
+## Diagnostics — use these before reading code to guess
+
+Everything the running game records lands in one place: `~/PortRoyaleTiny/diagnostics/` (session
+logs, crash reports, screenshots). **Ask the user for that folder before theorising about a bug.**
+
+- `GameLog` — decisions and outcomes only, never per-frame. Adding chatty logging is how this
+  stops being useful; if it fires every frame it does not belong here.
+- `WorldWatchdog` — invariant sweeps every 5s (aground, not moving, non-finite position, phantom
+  cargo). Reports each (subject, problem) **once**. New invariants go in `runWatchdog`.
+- `GameRandom` — the single source of randomness. **Never introduce `kotlin.random.Random` or
+  `MathUtils.random` into game logic**; it makes outcomes unreproducible and forces tests into
+  statistical margins. `GameRandom.withSeed(n) { … }` gives exact, repeatable outcomes in tests.
+- `F3` in game shows the seed and the nearest AI ship's real state; `F12` grabs a screenshot.
+
+```
+./gradlew.bat :core:simulate    # headless economy, ~30 simulated hours in a second, CSV out
+```
+
+`BalanceSimulation` is tagged `simulation` and excluded from `:core:test` deliberately — it
+asserts nothing, because what the right numbers are is what M15 has to decide. Its axis is **real
+hours of play, not game days**: the clock runs 10x, so one game day is 2.4 hours at the keyboard,
+and plotting game days puts every threshold out by a factor of 144.
 
 ## Release workflow
 

@@ -26,9 +26,33 @@ dependencies {
 // pathfinding) - not the Scene2D/rendering layer, which would need a real GL context to exercise
 // and is verified by actually running the game instead (see CLAUDE.md's testing discipline).
 test {
-    useJUnitPlatform()
+    // The balance simulation lives in the test sources but is not a test: it asserts nothing,
+    // because what the right numbers ARE is exactly what M15 has to decide. Excluded here and
+    // run on demand through the `simulate` task below.
+    useJUnitPlatform {
+        excludeTags 'simulation'
+    }
     testLogging {
         events "failed"
         exceptionFormat "full"
     }
+}
+
+// ./gradlew.bat :core:simulate - runs the economy headless for a few hundred game days and prints
+// the resulting curves (plus a CSV under core/build/simulation/). The point is to be able to
+// change one constant and see where the whole economy lands, instead of playing for an hour and
+// going on how it felt. Never up-to-date: the entire purpose is re-running it after a tweak.
+tasks.register('simulate', Test) {
+    group = 'verification'
+    description = 'Runs the headless economy/balance simulation (see BalanceSimulation).'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'simulation'
+    }
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat "full"
+    }
+    outputs.upToDateWhen { false }
 }

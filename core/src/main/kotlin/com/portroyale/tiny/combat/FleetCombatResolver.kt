@@ -1,7 +1,7 @@
 package com.portroyale.tiny.combat
 
+import com.portroyale.tiny.diagnostics.GameRandom
 import com.portroyale.tiny.world.AiShip
-import kotlin.random.Random
 
 enum class FleetCombatResult { VICTORY, FLED, DEFEAT }
 
@@ -43,12 +43,12 @@ object FleetCombatResolver {
         repeat(MAX_ROUNDS) {
             val hullFraction = shipHull.toFloat() / shipMaxHull
             if (hullFraction <= fleeThreshold) {
-                if (Random.nextFloat() < fleeChance) {
+                if (GameRandom.nextFloat() < fleeChance) {
                     return FleetCombatOutcome(FleetCombatResult.FLED, shipHull, 0)
                 }
             } else {
-                if (Random.nextFloat() >= MISS_CHANCE) {
-                    enemyHull = (enemyHull - Random.nextInt(shipMinDamage, shipMaxDamage + 1)).coerceAtLeast(0)
+                if (GameRandom.nextFloat() >= MISS_CHANCE) {
+                    enemyHull = (enemyHull - GameRandom.nextInt(shipMinDamage, shipMaxDamage + 1)).coerceAtLeast(0)
                 }
                 if (enemyHull <= 0) {
                     // Same prize the player would collect for the same opponent - see
@@ -57,8 +57,8 @@ object FleetCombatResolver {
                 }
             }
 
-            if (Random.nextFloat() >= enemyMissChance) {
-                shipHull = (shipHull - Random.nextInt(enemy.minDamage, enemy.maxDamage + 1)).coerceAtLeast(0)
+            if (GameRandom.nextFloat() >= enemyMissChance) {
+                shipHull = (shipHull - GameRandom.nextInt(enemy.minDamage, enemy.maxDamage + 1)).coerceAtLeast(0)
             }
             if (shipHull <= 0) {
                 return FleetCombatOutcome(FleetCombatResult.DEFEAT, 0, 0)

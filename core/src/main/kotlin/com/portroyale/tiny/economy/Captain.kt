@@ -1,6 +1,6 @@
 package com.portroyale.tiny.economy
 
-import com.badlogic.gdx.math.MathUtils
+import com.portroyale.tiny.diagnostics.GameRandom
 
 private const val BASE_HIRE_COST = 2000
 private const val HIRE_COST_SCALING = 2.75f
@@ -72,9 +72,9 @@ class Captain(
         /** Rolls a candidate's identity/stats only - no ship or route yet, since hiring now
          *  offers a choice of 3 candidates (see TavernUI) before either is committed to. */
         fun rollCandidate(): Captain {
-            val name = "${CAPTAIN_FIRST_NAMES.random()} ${CAPTAIN_LAST_NAMES.random()}"
-            val tradeSense = MathUtils.random(-TRADE_SENSE_RANGE, TRADE_SENSE_RANGE)
-            val caution = MathUtils.random(CAUTION_MIN, CAUTION_MAX)
+            val name = "${GameRandom.pick(CAPTAIN_FIRST_NAMES)} ${GameRandom.pick(CAPTAIN_LAST_NAMES)}"
+            val tradeSense = GameRandom.nextFloat(-TRADE_SENSE_RANGE, TRADE_SENSE_RANGE)
+            val caution = GameRandom.nextFloat(CAUTION_MIN, CAUTION_MAX)
             return Captain(name = name, tradeSense = tradeSense, caution = caution)
         }
     }

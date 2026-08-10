@@ -1,7 +1,7 @@
 package com.portroyale.tiny.combat
 
+import com.portroyale.tiny.diagnostics.GameRandom
 import com.portroyale.tiny.economy.Player
-import kotlin.random.Random
 
 enum class CombatOutcome { ONGOING, VICTORY, DEFEAT, FLED }
 
@@ -58,10 +58,10 @@ class CombatState(
     fun playerAttack() {
         if (isOver) return
 
-        var message = if (Random.nextFloat() < MISS_CHANCE) {
+        var message = if (GameRandom.nextFloat() < MISS_CHANCE) {
             "Your shot goes wide and misses ${enemy.name}."
         } else {
-            val damage = Random.nextInt(playerStats.minDamage, playerStats.maxDamage + 1)
+            val damage = GameRandom.nextInt(playerStats.minDamage, playerStats.maxDamage + 1)
             enemyHull = (enemyHull - damage).coerceAtLeast(0)
             "You hit ${enemy.name} for $damage."
         }
@@ -84,7 +84,7 @@ class CombatState(
 
     fun playerFlee() {
         if (isOver) return
-        if (Random.nextFloat() < fleeChance) {
+        if (GameRandom.nextFloat() < fleeChance) {
             outcome = CombatOutcome.FLED
             log = "You break off and outrun ${enemy.name}."
             return
@@ -93,10 +93,10 @@ class CombatState(
     }
 
     private fun enemyStrikesBack(): String {
-        if (Random.nextFloat() < enemyMissChance) {
+        if (GameRandom.nextFloat() < enemyMissChance) {
             return "${enemy.name}'s shot goes wide and misses you."
         }
-        val damage = Random.nextInt(enemy.minDamage, enemy.maxDamage + 1)
+        val damage = GameRandom.nextInt(enemy.minDamage, enemy.maxDamage + 1)
         playerHull = (playerHull - damage).coerceAtLeast(0)
         var message = "${enemy.name} hits you for $damage."
         if (playerHull <= 0) {

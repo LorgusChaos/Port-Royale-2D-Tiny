@@ -25,6 +25,10 @@ import com.portroyale.tiny.combat.CombatState
 import com.portroyale.tiny.combat.FleetCombatResolver
 import com.portroyale.tiny.combat.FleetCombatResult
 import com.portroyale.tiny.combat.ShipCombatant
+import com.portroyale.tiny.diagnostics.DiagnosticsFiles
+import com.portroyale.tiny.diagnostics.GameLog
+import com.portroyale.tiny.diagnostics.GameRandom
+import com.portroyale.tiny.diagnostics.WorldWatchdog
 import com.portroyale.tiny.economy.Captain
 import com.portroyale.tiny.economy.FleetSimulation
 import com.portroyale.tiny.economy.Good
@@ -122,9 +126,34 @@ private const val AI_SHIP_ARRIVE_THRESHOLD = 16f
 private const val PIRATE_FLEE_AWARENESS_RADIUS = 140f
 private const val PIRATE_FLEE_SPEED_MULTIPLIER = 1.3f
 private const val PORT_SAFE_RADIUS = 160f
-private const val TRADE_SHIPS_PER_FACTION = 2
-private const val MILITARY_SHIPS_PER_FACTION = 1
-private const val PIRATE_SHIP_COUNT = 4
+
+/** How long a pursuer will keep pushing against land before writing the chase off - see
+ *  updatePursuit. Long enough to round a small obstruction, short enough that a ship never looks
+ *  parked. */
+private const val PURSUIT_BLOCKED_GIVE_UP_SECONDS = 3f
+/** How close two AI ships have to be before they start easing away from each other. Roughly a
+ *  sprite's width: close enough to read as crowding, not so wide that ships avoid each other
+ *  across open sea. See separateAiShips. */
+private const val SHIP_SEPARATION_RADIUS = 34f
+/** World units per second of separation drift at full overlap. Deliberately well below sailing
+ *  speed - this is meant to keep hulls from sharing a pixel, not to shove them around. */
+private const val SHIP_SEPARATION_STRENGTH = 26f
+
+/** How often the invariant checks sweep the world - see WorldWatchdog. */
+private const val WATCHDOG_INTERVAL_SECONDS = 5f
+/** Movement below this between two sweeps counts as "not moving". Generous: even the slowest hull
+ *  covers far more than this in five seconds, so only a genuinely stuck ship trips it. */
+private const val WATCHDOG_STUCK_DISTANCE = 2f
+// Scaled with the M14b port roster (12 -> 28 harbours) to hold roughly the pre-expansion density
+// of ships per port - otherwise the original 16 hulls spread over more than twice the coastline
+// and the sea reads as deserted. Rough by intent; real numbers come out of long play tests.
+//
+// Of the three, the military count is the one most likely to need trimming: M14 made a faction's
+// navy react in graded steps, so a player who lets their standing slide now meets far more of
+// these than the old single hostile threshold ever produced.
+private const val TRADE_SHIPS_PER_FACTION = 4
+private const val MILITARY_SHIPS_PER_FACTION = 3
+private const val PIRATE_SHIP_COUNT = 8
 private const val REP_LOSS_TRADE = -8
 private const val REP_LOSS_MILITARY = -15
 // M10b persistence (see PortRoyaleGame.giveUpCooldownFor): a ship that just failed to catch its
@@ -197,7 +226,7 @@ private class ResolvedPort(val port: Ports.Port, val worldPos: Vector2, val appr
  * wheel zooms; the camera pans when the cursor nears a screen edge while sailing, clamped to the
  * map bounds; a minimap in the top-right corner shows the current view as a rectangle.
  */
-class PortRoyaleGame : ApplicationAdapter() {
+class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter() {
 
     private lateinit var shapeRenderer: ShapeRenderer
     private lateinit var batch: SpriteBatch
@@ -238,6 +267,11 @@ class PortRoyaleGame : ApplicationAdapter() {
 
     private val aiShips = mutableListOf<AiShip>()
     private var huntedShip: AiShip? = null
+
+    private val watchdog = WorldWatchdog(WATCHDOG_INTERVAL_SECONDS)
+    /** Where each AI ship was at the previous watchdog sweep, for the "has not moved" check. */
+    private val lastWatchdogPositions = mutableMapOf<AiShip, Vector2>()
+    private var debugOverlayVisible = false
 
     /** Last reputation tier the player was told about, per faction - see
      *  [announceReputationTierChanges]. Deliberately not saved: on load it refills from the
@@ -284,13 +318,31 @@ class PortRoyaleGame : ApplicationAdapter() {
             zoomBy(amountY)
             return true
         }
+
+        /** Map clicks come in through the input chain rather than being polled off Gdx.input in
+         *  the render loop. Polling cannot tell that a click was already spent on something else:
+         *  this processor sits LAST in sailingWithToastInputProcessor, so a press the toast or
+         *  the HUD has taken never reaches here. Pressing the game-speed button used to both
+         *  change speed and lay in a new course, because the polled read saw the same click. */
+        override fun touchDown(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
+            if (button != Buttons.LEFT) return false
+            pendingMapClick = Vector2(screenX.toFloat(), screenY.toFloat())
+            return true
+        }
     }
+
+    /** A left click on open map, waiting to be acted on by the next handleInput - see
+     *  [sailingInputProcessor]. Null whenever there is nothing to act on. */
+    private var pendingMapClick: Vector2? = null
     // The toast's close button needs Stage input handling too, but sailing itself is driven by
     // the raw InputAdapter above rather than a Stage - a multiplexer lets both listen at once
     // (the toast gets first crack, so its close button doesn't leak through as a ship click).
     private lateinit var sailingWithToastInputProcessor: InputMultiplexer
 
     override fun create() {
+        // Before anything that can fail: asset loading is the most likely thing to blow up on a
+        // machine that is not this one, and a crash there is exactly the one worth a report.
+        installDiagnostics()
         shapeRenderer = ShapeRenderer()
         batch = SpriteBatch()
         // Same TTF as the rest of the game's UI (see UiSkinFactory), but its OWN independent
@@ -382,6 +434,13 @@ class PortRoyaleGame : ApplicationAdapter() {
             ?: Vector2(MapProjection.MAP_WIDTH / 2f, MapProjection.MAP_HEIGHT / 2f)
 
     override fun resize(width: Int, height: Int) {
+        // A minimised window reports 0x0 on Windows, and letting that reach the viewport is not
+        // a harmless no-op: worldUnitsPerScreenPixel() then divides by a zero screen width, and
+        // the resulting Infinity is fed to portLabelFont.data.setScale(). That call is RELATIVE
+        // to the previous scale, so a single bad frame corrupts the font's metrics permanently -
+        // the port labels vanished on minimise and never came back, whatever the window did
+        // afterwards. Ignoring a degenerate size costs nothing: a real resize always follows.
+        if (width <= 0 || height <= 0) return
         viewport.update(width, height)
         portHubUI.resize(width, height)
         marketUI.resize(width, height)
@@ -407,6 +466,17 @@ class PortRoyaleGame : ApplicationAdapter() {
         // Re-apply every frame: the GL viewport rectangle (letterbox bars) otherwise doesn't
         // reliably stick between frames, which silently desyncs rendering from click unprojection.
         viewport.apply()
+
+        // Diagnostics keys work in every state, including menus - a visual bug is just as likely
+        // on a menu screen, and F12 is worth nothing if it only works while sailing.
+        if (Gdx.input.isKeyJustPressed(Keys.F3)) {
+            debugOverlayVisible = !debugOverlayVisible
+        }
+        if (Gdx.input.isKeyJustPressed(Keys.F12)) {
+            val path = DiagnosticsFiles.writeScreenshot("screenshot")
+            GameLog.log(GameLog.Category.SYSTEM, "screenshot: ${path ?: "failed"}")
+            if (path != null) eventToastUI.show("Screenshot saved to the diagnostics folder.", IconFactory.property)
+        }
 
         if (Gdx.input.isKeyJustPressed(Keys.ESCAPE)) {
             handleEscape()
@@ -497,6 +567,8 @@ class PortRoyaleGame : ApplicationAdapter() {
             hudOverlayUI.setCaptains(player.captains.filter { !it.isIdle })
             hudOverlayUI.setReputation(player.reputation)
             announceReputationTierChanges()
+            runWatchdog(Gdx.graphics.deltaTime)
+            hudOverlayUI.setDebugText(if (debugOverlayVisible) buildDebugText() else null)
             hudOverlayUI.render(Gdx.graphics.deltaTime)
         }
 
@@ -557,8 +629,10 @@ class PortRoyaleGame : ApplicationAdapter() {
             shipHeadingDeg = MathUtils.atan2(moveY, moveX) * MathUtils.radDeg
         }
 
-        if (Gdx.input.isButtonJustPressed(Buttons.LEFT)) {
-            touchPoint.set(Gdx.input.x.toFloat(), Gdx.input.y.toFloat())
+        val mapClick = pendingMapClick
+        pendingMapClick = null
+        if (mapClick != null) {
+            touchPoint.set(mapClick)
             viewport.unproject(touchPoint)
 
             val activeCaptains = player.captains.filter { !it.isIdle }
@@ -1031,6 +1105,9 @@ class PortRoyaleGame : ApplicationAdapter() {
             ship.position.y += ny * ship.speed * delta
             ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
         }
+        // After everyone has moved, not during: separating mid-loop would push ships that have
+        // already had their turn this frame and leave the result dependent on list order.
+        separateAiShips(delta)
     }
 
     /** M11: a hostile ship that spots a target (the player, or any active fleet captain's ship)
@@ -1078,9 +1155,11 @@ class PortRoyaleGame : ApplicationAdapter() {
 
         val targetPos = ship.pursuingCaptain?.let { fleetShipTransform(it)?.first } ?: shipPosition
         val dist = ship.position.dst(targetPos)
-        if (dist > PIRATE_FLEE_AWARENESS_RADIUS * PURSUIT_GIVE_UP_MULTIPLIER) {
-            ship.isPursuing = false
-            ship.pursuingCaptain = null
+        // A quarry that has reached harbour is gone. Ports are safe (see isNearAnyPort), so
+        // hanging about outside one can never pay off - and it was exactly what left pirates
+        // parked at a port's doorstep indefinitely after the player slipped inside.
+        if (dist > PIRATE_FLEE_AWARENESS_RADIUS * PURSUIT_GIVE_UP_MULTIPLIER || isNearAnyPort(targetPos)) {
+            abandonPursuit(ship)
             return false
         }
         val dx = targetPos.x - ship.position.x
@@ -1093,8 +1172,242 @@ class PortRoyaleGame : ApplicationAdapter() {
         if (worldMap.isWater(newX, newY)) {
             ship.position.set(newX, newY)
             ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
+            ship.pursuitBlockedFor = 0f
+            return true
         }
-        return true
+
+        // Land in the way. Pursuit is straight-line steering with no route around anything, so
+        // returning true here (as it used to) told the caller "handled" and skipped the ship's
+        // ordinary path movement as well - leaving it frozen on the spot, chasing something it
+        // could never reach. Fall back to the patrol path this frame, and give up the chase if
+        // the way stays blocked.
+        ship.pursuitBlockedFor += delta
+        if (ship.pursuitBlockedFor >= PURSUIT_BLOCKED_GIVE_UP_SECONDS) {
+            // Worth logging even though it is now handled: a ship repeatedly getting boxed in at
+            // the same spot is how a map problem announces itself.
+            GameLog.log(
+                GameLog.Category.AI,
+                "${ship.displayName} gave up a chase - blocked by land for " +
+                    "${PURSUIT_BLOCKED_GIVE_UP_SECONDS}s at ${ship.position.x.toInt()}, ${ship.position.y.toInt()}"
+            )
+            abandonPursuit(ship)
+            ship.giveUpCooldown = GIVE_UP_COOLDOWN_CAUTIOUS
+        }
+        return false
+    }
+
+    /**
+     * Opens the session log and arranges for an unhandled exception to leave behind something a
+     * person can act on. Nothing here is allowed to be the reason the game fails to start, hence
+     * the guard around the whole thing.
+     *
+     * The handler is the JVM's default rather than a try/catch around render(): an exception in
+     * the render loop propagates out of libGDX's main loop uncaught, and this way a crash on any
+     * other thread (audio, asset I/O) is captured too.
+     */
+    private fun installDiagnostics() {
+        try {
+            val logFile = DiagnosticsFiles.beginSession(version)
+            GameLog.start(
+                environment = describeEnvironment(),
+                sink = { line -> DiagnosticsFiles.append(line) },
+                contextProvider = ::describeWorldState
+            )
+            if (logFile != null) GameLog.log(GameLog.Category.SYSTEM, "logging to ${logFile.file().absolutePath}")
+            // The seed goes in first, before anything can go wrong: it is the one line that makes
+            // a reported fight or spawn replayable (see GameRandom).
+            GameLog.log(GameLog.Category.SYSTEM, "random seed: ${GameRandom.seed}")
+
+            val previous = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                val report = try {
+                    GameLog.buildCrashReport(throwable)
+                } catch (secondary: Throwable) {
+                    "crash report could not be built: $secondary\n\n${GameLog.stackTraceOf(throwable)}"
+                }
+                // Attempted, not assumed: by the time some crashes reach here the GL context is
+                // already gone, and a failed screenshot must not swallow the report itself.
+                DiagnosticsFiles.writeScreenshot("crash")
+                val path = DiagnosticsFiles.writeCrashReport(report)
+                System.err.println(report)
+                if (path != null) System.err.println("Crash report written to: $path")
+                // Still hand it on, so the exit code and console output stay what they were.
+                previous?.uncaughtException(thread, throwable)
+            }
+        } catch (e: Throwable) {
+            println("Diagnostics failed to start (${e.message}) - continuing without logging")
+        }
+    }
+
+    /**
+     * The F3 overlay. Its job is to turn "the pirate is flickering" into something a report can
+     * quote - the nearest AI ship's actual state, the seed the session is running on, what the
+     * simulation thinks is happening. Cheap to read at a glance, and never on by default.
+     */
+    private fun buildDebugText(): String {
+        val nearest = aiShips.minByOrNull { it.position.dst(shipPosition) }
+        val nearestLine = if (nearest == null) "none" else buildString {
+            append(nearest.displayName)
+            append(" @").append(nearest.position.dst(shipPosition).toInt())
+            append(if (nearest.isPursuing) " PURSUING" else " patrol")
+            if (nearest.pursuitBlockedFor > 0f) append(" blocked=%.1fs".format(nearest.pursuitBlockedFor))
+            if (nearest.giveUpCooldown > 0f) append(" cooldown=%.1fs".format(nearest.giveUpCooldown))
+            append(" path=").append(nearest.pathIndex).append('/').append(nearest.path.size)
+        }
+        return buildString {
+            appendLine("F3 debug   seed=${GameRandom.seed}")
+            appendLine("fps ${Gdx.graphics.framesPerSecond}   mode $gameMode   speed ${GameSpeed.multiplier}x")
+            appendLine("player ${shipPosition.x.toInt()}, ${shipPosition.y.toInt()}   nav $navMode")
+            appendLine("ai ships ${aiShips.size} (${aiShips.count { it.isPursuing }} pursuing)   ports ${resolvedPorts.size}")
+            appendLine("nearest: $nearestLine")
+            append("F12 screenshot   diagnostics: ${DiagnosticsFiles.directoryPath ?: "unavailable"}")
+        }
+    }
+
+    private fun describeEnvironment(): List<String> {
+        fun gl(name: Int) = try {
+            Gdx.gl.glGetString(name) ?: "?"
+        } catch (e: Throwable) {
+            "unavailable"
+        }
+        return listOf(
+            "game version: $version",
+            "os: ${System.getProperty("os.name")} ${System.getProperty("os.version")} (${System.getProperty("os.arch")})",
+            "jvm: ${System.getProperty("java.vendor")} ${System.getProperty("java.version")}",
+            "gl renderer: ${gl(GL20.GL_RENDERER)}",
+            "gl vendor: ${gl(GL20.GL_VENDOR)}",
+            "gl version: ${gl(GL20.GL_VERSION)}",
+            "window: ${Gdx.graphics.width}x${Gdx.graphics.height}"
+        )
+    }
+
+    /**
+     * A snapshot of what the world was doing, gathered only when a crash happens. Every read is
+     * defensive: this runs while things are already going wrong, and a `lateinit` that was never
+     * initialised must not turn a useful report into a second exception.
+     */
+    private fun describeWorldState(): List<String> = buildList {
+        fun safe(label: String, read: () -> Any?) {
+            add("$label: " + try { read().toString() } catch (e: Throwable) { "<unreadable: ${e::class.java.simpleName}>" })
+        }
+        safe("app state") { appState }
+        safe("game mode") { gameMode }
+        safe("port screen") { portScreen }
+        safe("current port") { currentPortName }
+        safe("game clock") { "${GameClock.calendarLabel} (${GameClock.totalGameMinutes} min)" }
+        safe("world speed") { "${GameSpeed.multiplier}x" }
+        safe("player gold") { player.gold }
+        safe("player ship") { "${player.ship.name} hull ${player.condition.currentHull}/${player.effectiveMaxHull}" }
+        safe("player position") { "${shipPosition.x}, ${shipPosition.y}" }
+        safe("nav mode") { navMode }
+        safe("cargo") { "${player.cargoUsed}/${player.cargoCapacity}" }
+        safe("reputation") { Faction.entries.joinToString { "${it.name}=${player.reputation[it]}" } }
+        safe("owned ships") { player.ownedShips.size }
+        safe("captains") { player.captains.count { !it.isIdle } }
+        safe("ai ships") { aiShips.size }
+        safe("ports") { resolvedPorts.size }
+        safe("pursuing ships") { aiShips.count { it.isPursuing } }
+    }
+
+    /** Runs the invariant checks (see [WorldWatchdog]). Every one of these is a state the world
+     *  should never reach; each has a matching bug in this file's history. */
+    private fun runWatchdog(delta: Float) {
+        watchdog.update(delta) { reporter ->
+            for ((index, ship) in aiShips.withIndex()) {
+                val id = "${ship.displayName}#$index"
+                val position = ship.position
+                if (!position.x.isFinite() || !position.y.isFinite()) {
+                    reporter.problem("$id/nan") { "$id has a non-finite position ($position)" }
+                    continue
+                }
+                if (!worldMap.isWater(position.x, position.y)) {
+                    reporter.problem("$id/aground") {
+                        "$id is on land at ${position.x.toInt()}, ${position.y.toInt()}"
+                    }
+                }
+                val previous = lastWatchdogPositions[ship]
+                if (previous != null && previous.dst(position) < WATCHDOG_STUCK_DISTANCE &&
+                    !isNearAnyPort(position)
+                ) {
+                    reporter.problem("$id/stuck") {
+                        "$id has not moved in ${WATCHDOG_INTERVAL_SECONDS}s at " +
+                            "${position.x.toInt()}, ${position.y.toInt()} " +
+                            "(pursuing=${ship.isPursuing}, blockedFor=${ship.pursuitBlockedFor})"
+                    }
+                }
+                lastWatchdogPositions[ship] = position.cpy()
+            }
+            lastWatchdogPositions.keys.retainAll(aiShips.toSet())
+
+            for (captain in player.captains) {
+                if (captain.cargoUnits > 0 && captain.cargoGood == null) {
+                    reporter.problem("${captain.name}/phantom-cargo") {
+                        "${captain.name} holds ${captain.cargoUnits} units of nothing"
+                    }
+                }
+                if (!captain.isIdle && player.ownedShips.none { it.id == captain.shipId }) {
+                    reporter.problem("${captain.name}/ghost-ship") {
+                        "${captain.name} is crewing ship ${captain.shipId}, which is not in the fleet"
+                    }
+                }
+            }
+
+            if (!shipPosition.x.isFinite() || !shipPosition.y.isFinite()) {
+                reporter.problem("player/nan") { "the player's position is non-finite ($shipPosition)" }
+            }
+        }
+    }
+
+    private fun abandonPursuit(ship: AiShip) {
+        ship.isPursuing = false
+        ship.pursuingCaptain = null
+        ship.pursuitBlockedFor = 0f
+    }
+
+    /**
+     * Keeps AI ships from stacking into a single flickering pile. Nothing stopped several
+     * pursuers converging on the same target from ending up at the same coordinates, drawn on
+     * top of each other and jittering as each corrected toward the same point.
+     *
+     * This is ordinary local separation steering, the same trick flocking AI has used for
+     * decades: no collision solver and no reservations, each ship simply drifts away from
+     * whatever is too close. Cheap enough to run brute force - a few dozen hulls is a couple of
+     * thousand pair checks a frame - and the push is only applied where it lands on water, so
+     * crowding can never shove a ship onto a beach.
+     */
+    private fun separateAiShips(delta: Float) {
+        for (i in aiShips.indices) {
+            for (j in i + 1 until aiShips.size) {
+                val a = aiShips[i]
+                val b = aiShips[j]
+                var dx = b.position.x - a.position.x
+                var dy = b.position.y - a.position.y
+                val distanceSq = dx * dx + dy * dy
+                if (distanceSq >= SHIP_SEPARATION_RADIUS * SHIP_SEPARATION_RADIUS) continue
+
+                var distance = kotlin.math.sqrt(distanceSq)
+                if (distance < 0.01f) {
+                    // Exactly coincident: pick a deterministic direction from their identities so
+                    // the pair does not sit vibrating on a random axis every frame.
+                    val angle = ((i * 37 + j * 17) % 360).toFloat() * MathUtils.degRad
+                    dx = MathUtils.cos(angle)
+                    dy = MathUtils.sin(angle)
+                    distance = 1f
+                }
+                val overlap = (SHIP_SEPARATION_RADIUS - distance) / SHIP_SEPARATION_RADIUS
+                val push = overlap * SHIP_SEPARATION_STRENGTH * delta
+                val nx = dx / distance * push
+                val ny = dy / distance * push
+                nudgeIfWater(a, -nx, -ny)
+                nudgeIfWater(b, nx, ny)
+            }
+        }
+    }
+
+    private fun nudgeIfWater(ship: AiShip, dx: Float, dy: Float) {
+        val x = ship.position.x + dx
+        val y = ship.position.y + dy
+        if (worldMap.isWater(x, y)) ship.position.set(x, y)
     }
 
     /** An outmatched pirate's panic move: sail directly away from the player, ignoring its
@@ -1219,6 +1532,11 @@ class PortRoyaleGame : ApplicationAdapter() {
             lastAnnouncedTier[faction] = tier
             if (previous == null || previous == tier) continue
             val improved = tier.ordinal > previous.ordinal
+            GameLog.log(
+                GameLog.Category.ECONOMY,
+                "${faction.displayName} standing ${previous.label} -> ${tier.label} " +
+                    "(${player.reputation[faction]})"
+            )
             eventToastUI.show(
                 "${faction.displayName}: ${previous.label} -> ${tier.label}",
                 if (improved) IconFactory.coin else IconFactory.debt
@@ -1332,6 +1650,10 @@ class PortRoyaleGame : ApplicationAdapter() {
                     "Your captain ${captain.name} was caught by a ${threat.displayName} and lost - " +
                         "along with their ship and everything aboard.",
                     IconFactory.castaway
+                )
+                GameLog.log(
+                    GameLog.Category.FLEET,
+                    "${captain.name} lost with their ship to a ${threat.displayName}"
                 )
                 FleetSimulation.loseCaptain(player, captain)
             }
@@ -1684,8 +2006,15 @@ class PortRoyaleGame : ApplicationAdapter() {
      *  regardless of zoom. Derived from the same relationship FitViewport itself uses internally
      *  (visible world width = camera.viewportWidth * zoom, mapped onto viewport.screenWidth
      *  pixels), so it stays correct across window resizes too. */
-    private fun worldUnitsPerScreenPixel(): Float =
-        camera.viewportWidth * camera.zoom / viewport.screenWidth.toFloat()
+    private fun worldUnitsPerScreenPixel(): Float {
+        // Belt and braces alongside the 0x0 guard in resize(): anything that ever hands this a
+        // zero screen width would otherwise return Infinity, and Infinity reaching
+        // BitmapFontData.setScale() ruins the font's metrics for the rest of the session, not
+        // just for that frame.
+        val screenWidth = viewport.screenWidth.toFloat()
+        if (screenWidth <= 0f) return 1f
+        return camera.viewportWidth * camera.zoom / screenWidth
+    }
 
     /** World-space height a port label renders at right now, for drawMarketIndicators() to stack
      *  the goods row underneath it. */

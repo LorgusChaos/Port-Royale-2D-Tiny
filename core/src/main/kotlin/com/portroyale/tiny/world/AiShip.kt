@@ -3,6 +3,7 @@ package com.portroyale.tiny.world
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector2
+import com.portroyale.tiny.diagnostics.GameRandom
 import com.portroyale.tiny.economy.Captain
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.ships.ShipTypes
@@ -48,6 +49,12 @@ class AiShip(
      *  down doesn't get a free warning the way one stumbled into by chance does. */
     var isPursuing: Boolean = false
     var pursuingCaptain: Captain? = null
+
+    /** How long this ship has been trying to close on its target with land in the way. Pursuit
+     *  steers in a straight line and has no route around obstacles, so without this a pursuer
+     *  that ends up behind a headland - or outside the port its quarry escaped into - sits there
+     *  forever, unable to advance and never giving up. See PortRoyaleGame.updatePursuit. */
+    var pursuitBlockedFor: Float = 0f
 
     val displayName: String
         get() = when (role) {
@@ -126,7 +133,7 @@ object AiShipFactory {
     )
 
     fun pirate(position: Vector2): AiShip {
-        val tier = MathUtils.random(1, 5)
+        val tier = GameRandom.nextIntInclusive(1, 5)
         return AiShip(
             role = AiShipRole.PIRATE,
             faction = null,

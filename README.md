@@ -3,7 +3,7 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5.5 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.5.6 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
 > ships that actually hunt down a target they've spotted, a small hired fleet of captains who
 > fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
@@ -13,7 +13,7 @@ combat, deliberately kept small in scope for a solo/hobby project.
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5.5
+## What's here in v0.4.5.6
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -26,8 +26,10 @@ franchise's creators or publishers.
   nothing.
 - Mouse-wheel zoom, edge-of-screen panning and right-click-drag panning while sailing (both
   clamped to the map bounds), and a minimap showing the current view.
-- Twelve labeled ports, each belonging to its real 17th/18th-century colonial owner - Spain,
-  England, France, or the Netherlands. Arriving at one opens a city hub with icon buttons for:
+- Twenty-eight labeled ports, each belonging to its real 17th/18th-century colonial owner - Spain,
+  England, France, or the Netherlands - from Veracruz and the logwood coast in the west out to
+  Barbados and Dutch Guiana in the south-east. Arriving at one opens a city hub with icon buttons
+  for:
   - a **market** - buy/sell ten goods with hand-drawn icons; a living supply level per port/good
     drifts over time and responds to the player's own trading, on top of the port's fixed
     historical bias and reputation with its owning faction. Goods notably cheap or scarce at a
@@ -143,6 +145,30 @@ Covers the pure game logic - economy, ship condition and upgrades, combat maths,
 simulation, save compatibility, and map pathfinding. The Scene2D/rendering layer is deliberately
 left out: it needs a live GL context, and is checked by actually running the game. The same suite
 runs on every push to `main` (see `.github/workflows/release.yml`).
+
+### Diagnostics
+
+Everything the game records about itself goes to **one folder**, next to the saves under your home
+directory: `PortRoyaleTiny/diagnostics/`. Zip it and send it - that is the whole bug report.
+
+| | |
+|---|---|
+| `session-*.log` | What the world decided and why: pursuits begun and abandoned, captains lost, standing crossing a tier, saves. Decisions only - never per-frame noise. Last five runs are kept. |
+| `crash-*.txt` | Machine (including GPU and driver), the state of the world at that instant, the full exception chain, and the last events before it. |
+| `screenshot-*.png` | `F12` at any time; also attempted automatically on a crash. |
+
+In-game, **`F3`** toggles a developer overlay: frames per second, the session's random seed, and
+the nearest AI ship's actual state (pursuing / patrolling / blocked, and for how long). Reporting
+"the pirate is stuck, seed 8371, blocked=40s" is worth an hour of guessing from a description.
+
+```
+./gradlew.bat :core:simulate    # headless economy run, printed curves + CSV
+```
+
+Runs the trading economy with no window for thirty hours of simulated play in about a second, and
+prints where wealth and reputation end up. It asserts nothing on purpose - deciding what the right
+numbers *are* is what the balance pass is for - so it is excluded from the test suite and run by
+hand after changing a constant.
 
 ## Building a distributable build
 
@@ -263,12 +289,13 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       picks fights it wins / hunts you), and four reputation bars sit in the HUD so a sale's
       trade-off is visible as it happens. Hired captains' sales count exactly like your own
       *(this release)*
-- [ ] **M14b** - world expansion: grow the port roster beyond the current twelve - mostly
-      content work (new entries in the already-parameterized port/market data), done after
-      M14 so the new ports don't need the faction-conflict balance recalibrated twice. New
-      ports must also even out the per-faction roster (today 7/3/1/1): M14's reputation runs
-      off *share of sales revenue*, so France and the Netherlands currently sink structurally
-      rather than by the player's choice
+- [x] **M14b** - world expansion: the port roster grew from twelve to twenty-eight, and the
+      per-faction split from 7/3/1/1 to 9/8/6/5. Both mattered: M14's reputation runs off *share
+      of sales revenue*, so a power holding one harbour could only be courted by pushing a quarter
+      of all trade through it. The empty western third of the map is filled too - and not with
+      Spain alone, though the region historically was Spanish: Roatan, the Mosquito Coast and Old
+      Providence were real English footholds in Spain's own sea, which keeps the west interesting
+      rather than merely populated *(this release)*
 - [ ] **M15** - economy balance pass, now with real thresholds to calibrate against (status
       ceilings, captain hiring costs, the M14 reputation penalty) instead of placeholders
 - [ ] **M16** - full UI/UX polish pass: every remaining menu, icon, and interactive element
