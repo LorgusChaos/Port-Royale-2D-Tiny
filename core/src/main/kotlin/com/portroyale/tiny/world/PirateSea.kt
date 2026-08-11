@@ -21,11 +21,15 @@ object PirateSea {
 
     const val NAME = "Sea of Pirates"
 
-    /** Where pirates spawn and return to. Measured: open water, a route exists to it from the
-     *  trading world, and the nearest port (Havana) is 795 units away. Roughly modern Panama
-     *  City, Florida - though nothing on the map marks it, which is the point. */
-    private const val LAIR_LAT = 30.16f
-    private const val LAIR_LON = -85.66f
+    /** Centre of the anchorage pirates spawn in and return to - open Gulf water well clear of
+     *  any coast, not a point on the shore. Measured: water, a route exists to it from the
+     *  trading world, nearest port 684 units away. */
+    private const val LAIR_LAT = 28.6f
+    private const val LAIR_LON = -86.3f
+
+    /** The lair is an anchorage, not a pin: four Galleon lengths across, so a band gathers as a
+     *  cluster riding at anchor rather than a stack of hulls on one coordinate. */
+    const val LAIR_RADIUS = WorldScale.GALLEON_LENGTH * 2f
 
     /** The fogged area, Sarasota to New Orleans. Both corners fall on land, which is fine for fog
      *  over a region - but the lair itself has to be water, and is. */
@@ -35,6 +39,17 @@ object PirateSea {
     private const val EAST_LON = -82.5f
 
     val lair: Vector2 get() = MapProjection.project(LAIR_LAT, LAIR_LON)
+
+    /** A berth somewhere in the anchorage. [angle] and [distanceFraction] are 0..1 rolls from the
+     *  caller, so this stays free of any randomness of its own and can be tested exactly. */
+    fun berth(angle: Float, distanceFraction: Float): Vector2 {
+        val centre = lair
+        val distance = LAIR_RADIUS * distanceFraction
+        return Vector2(
+            centre.x + kotlin.math.cos(angle) * distance,
+            centre.y + kotlin.math.sin(angle) * distance
+        )
+    }
 
     /** Bottom-left corner of the fog rectangle in world units. */
     val fogOrigin: Vector2 get() = MapProjection.project(SOUTH_LAT, WEST_LON)

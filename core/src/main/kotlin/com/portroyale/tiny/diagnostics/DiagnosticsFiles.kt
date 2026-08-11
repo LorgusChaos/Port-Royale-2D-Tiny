@@ -5,6 +5,7 @@ import com.badlogic.gdx.files.FileHandle
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.PixmapIO
 import java.time.LocalDateTime
+import java.util.zip.Deflater
 import java.time.format.DateTimeFormatter
 
 private const val DIAGNOSTICS_DIR = "PortRoyaleTiny/diagnostics/"
@@ -73,7 +74,9 @@ object DiagnosticsFiles {
         val dir = Gdx.files.external(DIAGNOSTICS_DIR)
         dir.mkdirs()
         val file = dir.child("$prefix-${stamp()}.png")
-        PixmapIO.writePNG(file, pixmap)
+        // flipY, because a framebuffer's origin is bottom-left and a PNG's is top-left - without
+        // it every screenshot came out upside down, which is a poor way to report a visual bug.
+        PixmapIO.writePNG(file, pixmap, Deflater.DEFAULT_COMPRESSION, true)
         pixmap.dispose()
         file.file().absolutePath
     } catch (e: Throwable) {

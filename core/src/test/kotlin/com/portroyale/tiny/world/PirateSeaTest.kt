@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
 class PirateSeaTest {
 
     private lateinit var worldMap: WorldMap
-    private val portSafeRadius = 160f
+    private val portSafeRadius = WorldScale.PORT_SAFE_RADIUS
 
     @BeforeTest
     fun loadRealMap() {
@@ -91,6 +91,35 @@ class PirateSeaTest {
         for (port in Ports.ALL) {
             val position = MapProjection.project(port.lat, port.lon)
             assertTrue(!PirateSea.contains(position), "${port.name} is inside the Sea of Pirates")
+        }
+    }
+
+    @Test
+    fun `the anchorage is open water across its whole width`() {
+        // It used to be a single point snapped to the nearest water, which landed the whole band
+        // on the shoreline. Every berth in the circle has to be sailable, not just its centre.
+        for (step in 0 until 16) {
+            val angle = step * (2f * Math.PI.toFloat() / 16f)
+            for (fraction in listOf(0.25f, 0.6f, 1f)) {
+                val berth = PirateSea.berth(angle, fraction)
+                assertTrue(
+                    worldMap.isWater(berth.x, berth.y),
+                    "berth at angle $angle, fraction $fraction is aground at $berth"
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the anchorage is four galleon lengths across`() {
+        assertEquals(WorldScale.GALLEON_LENGTH * 4f, PirateSea.LAIR_RADIUS * 2f, 0.01f)
+    }
+
+    @Test
+    fun `the anchorage lies under its own fog`() {
+        for (step in 0 until 8) {
+            val berth = PirateSea.berth(step * (2f * Math.PI.toFloat() / 8f), 1f)
+            assertTrue(PirateSea.contains(berth), "berth $berth sits outside the fog")
         }
     }
 

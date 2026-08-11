@@ -35,7 +35,9 @@ object FleetCombatResolver {
         enemy: AiShip
     ): FleetCombatOutcome {
         var shipHull = shipStartHull.coerceAtLeast(1)
-        var enemyHull = enemy.maxHull
+        // The opponent brings whatever hull it has left, not a fresh one: a pirate that fought
+        // off a warship an hour ago should not meet the next one at full strength.
+        var enemyHull = enemy.currentHull
         val fleeChance = (BASE_FLEE_CHANCE + shipManeuverability * FLEE_CHANCE_PER_MANEUVER).coerceAtMost(MAX_FLEE_CHANCE)
         val enemyMissChance = (MISS_CHANCE + shipManeuverability * EVASION_PER_MANEUVER).coerceAtMost(MAX_ENEMY_MISS_CHANCE)
         val fleeThreshold = caution * FLEE_THRESHOLD_PER_CAUTION
@@ -50,6 +52,7 @@ object FleetCombatResolver {
                 if (GameRandom.nextFloat() >= MISS_CHANCE) {
                     enemyHull = (enemyHull - GameRandom.nextInt(shipMinDamage, shipMaxDamage + 1)).coerceAtLeast(0)
                 }
+                enemy.currentHull = enemyHull
                 if (enemyHull <= 0) {
                     // Same prize the player would collect for the same opponent - see
                     // CombatState's victory branch and AiShip.goldReward.
@@ -60,6 +63,7 @@ object FleetCombatResolver {
             if (GameRandom.nextFloat() >= enemyMissChance) {
                 shipHull = (shipHull - GameRandom.nextInt(enemy.minDamage, enemy.maxDamage + 1)).coerceAtLeast(0)
             }
+            enemy.currentHull = enemyHull
             if (shipHull <= 0) {
                 return FleetCombatOutcome(FleetCombatResult.DEFEAT, 0, 0)
             }

@@ -197,4 +197,51 @@ class FleetCombatResolverTest {
         assertEquals(FleetCombatResult.VICTORY, outcome.result)
         assertEquals(1, outcome.remainingHull)
     }
+
+    // --- damage that lasts (M11e) ---
+
+    @Test
+    fun `a battered opponent costs less to beat than a fresh one`() {
+        // Fights used to start from maxHull on both sides every time, which made navies that
+        // fought back-to-back effectively unsinkable and the escalating-wave rule unreachable.
+        // Damage is fixed at both ends here so the comparison is exact rather than lucky.
+        fun costToBeat(target: AiShip): Int {
+            val outcome = resolve(
+                maxHull = 10_000, startHull = 10_000,
+                minDamage = 1, maxDamage = 1, caution = 0f, enemy = target
+            )
+            assertEquals(FleetCombatResult.VICTORY, outcome.result)
+            return 10_000 - outcome.remainingHull
+        }
+
+        val fresh = costToBeat(enemy(minDamage = 5, maxDamage = 5))
+        val battered = costToBeat(enemy(minDamage = 5, maxDamage = 5).also { it.currentHull = it.maxHull / 5 })
+
+        assertTrue(battered < fresh, "battered cost $battered, fresh cost $fresh")
+    }
+
+    @Test
+    fun `an opponent that survives keeps the damage it took`() {
+        val target = enemy()
+        resolve(enemy = target)
+        assertTrue(target.currentHull < target.maxHull, "the enemy walked away untouched")
+    }
+
+    @Test
+    fun `a fresh ship starts at full hull`() {
+        val ship = enemy()
+        assertEquals(ship.maxHull, ship.currentHull)
+    }
+
+    private fun roundsToBeat(target: AiShip): Int {
+        var rounds = 0
+        while (target.currentHull > 0 && rounds < 500) {
+            rounds++
+            resolve(
+                maxHull = 10_000, startHull = 10_000,
+                minDamage = 1, maxDamage = 1, caution = 0f, enemy = target
+            )
+        }
+        return rounds
+    }
 }

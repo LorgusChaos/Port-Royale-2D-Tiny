@@ -49,6 +49,9 @@ import com.portroyale.tiny.ships.ShipTypes
 import com.portroyale.tiny.world.AiShip
 import com.portroyale.tiny.world.AiShipFactory
 import com.portroyale.tiny.world.AiShipRole
+import com.portroyale.tiny.world.Encounters
+import com.portroyale.tiny.world.Helm
+import com.portroyale.tiny.world.PirateVoyage
 import com.portroyale.tiny.ui.CaptainStatusUI
 import com.portroyale.tiny.ui.CombatUI
 import com.portroyale.tiny.ui.EventToastUI
@@ -72,7 +75,11 @@ import com.portroyale.tiny.ui.WarehouseUI
 import com.portroyale.tiny.world.GameClock
 import com.portroyale.tiny.world.GameSpeed
 import com.portroyale.tiny.world.MapProjection
+import com.portroyale.tiny.world.PirateRaid
+import com.portroyale.tiny.world.RaidPhase
 import com.portroyale.tiny.world.PirateSea
+import com.portroyale.tiny.world.SinkMark
+import com.portroyale.tiny.world.WorldScale
 import com.portroyale.tiny.world.Ports
 import com.portroyale.tiny.world.SeaEventPoint
 import com.portroyale.tiny.world.SeaEventSlot
@@ -121,25 +128,26 @@ private const val FLEET_SHIP_CLICK_RADIUS = 8f
 private const val FLEET_SHIP_SPRITE_SCALE = 0.8f
 private const val BASE_SHIP_SPRITE_WIDTH = 13f
 private const val PORT_ICON_SIZE = 26f
-private const val AI_SHIP_ENGAGE_RADIUS = 52f
+/** Where hulls touch and shooting starts - see Encounters.CONTACT_RADIUS for why this is now
+ *  under a ship length rather than the two it used to be. */
+private val AI_SHIP_ENGAGE_RADIUS = Encounters.CONTACT_RADIUS
 private const val AI_SHIP_ARRIVE_THRESHOLD = 16f
-// Deliberately larger than AI_SHIP_ENGAGE_RADIUS - an outmatched pirate needs to notice and start
-// running before the player gets close enough to trigger combat, not exactly at the wire.
-private const val PIRATE_FLEE_AWARENESS_RADIUS = 140f
-private const val PIRATE_FLEE_SPEED_MULTIPLIER = 1.3f
-private const val PORT_SAFE_RADIUS = 160f
+// Every ship sees exactly as far as every other - see Encounters.SIGHT_RADIUS. Comfortably
+// larger than the range at which hulls touch, so an outmatched pirate notices the player and
+// starts running well before combat can trigger.
+private val PIRATE_FLEE_AWARENESS_RADIUS = Encounters.SIGHT_RADIUS
+private val PORT_SAFE_RADIUS = WorldScale.PORT_SAFE_RADIUS
 
 /** How long a pursuer will keep pushing against land before writing the chase off - see
  *  updatePursuit. Long enough to round a small obstruction, short enough that a ship never looks
  *  parked. */
 private const val PURSUIT_BLOCKED_GIVE_UP_SECONDS = 3f
-/** How close two AI ships have to be before they start easing away from each other. Roughly a
- *  sprite's width: close enough to read as crowding, not so wide that ships avoid each other
- *  across open sea. See separateAiShips. */
-private const val SHIP_SEPARATION_RADIUS = 34f
-/** World units per second of separation drift at full overlap. Deliberately well below sailing
- *  speed - this is meant to keep hulls from sharing a pixel, not to shove them around. */
-private const val SHIP_SEPARATION_STRENGTH = 26f
+/** How close two AI ships have to be before they start easing away from each other - a full
+ *  Galleon length, see WorldScale.HULL_CLEARANCE. */
+private val SHIP_SEPARATION_RADIUS = WorldScale.HULL_CLEARANCE
+/** See WorldScale for both of these and why they are bounded by hull speed. */
+private val SHIP_SEPARATION_STRENGTH = WorldScale.SEPARATION_DRIFT
+private val SEPARATION_SPEED_FRACTION = WorldScale.SEPARATION_SPEED_FRACTION
 /** How much of the arrival radius counts as "on final approach", where separation stops applying.
  *  Has to exceed SHIP_SEPARATION_RADIUS / AI_SHIP_ARRIVE_THRESHOLD, or crowding could still hold a
  *  ship just outside its own destination. */
@@ -157,6 +165,92 @@ private const val PROWL_RADIUS_MULTIPLIER = 1.25f
  *  at either end is a ship in harbour, which is the look this avoids. */
 private const val SCATTER_MIN_PROGRESS = 0.08f
 private const val SCATTER_MAX_PROGRESS = 0.92f
+
+// --- M11d: pirate raids ---
+/** How many pirates a raid pulls in. Enough to make a corridor genuinely risky, few enough that
+ *  it stays passable - ten would simply close the route. */
+private const val RAID_PIRATE_COUNT = 3
+private const val NAVAL_WAVE_BASE = 2
+private const val NAVAL_WAVE_MAX = 5
+/** How far around the midpoint of the two ports counts as the raid, on top of half their
+ *  separation. */
+private const val RAID_RADIUS_MARGIN = 200f
+private const val RAID_MAX_RADIUS = 450f
+/** The second port is drawn from this many nearest neighbours of the first, so a raid sits on a
+ *  stretch someone would plausibly sail rather than between two random dots. */
+private const val RAID_NEIGHBOUR_POOL = 5
+private const val RAID_MIN_SECONDS = 8 * 60f
+private const val RAID_MAX_SECONDS = 12 * 60f
+/** Long on purpose: the point of a raid is that a corridor is dangerous for a while - long enough
+ *  for a captain's route to run into it - not that the player catches a skirmish. */
+private const val RAID_RESPONSE_MIN_SECONDS = 90f
+private const val RAID_RESPONSE_MAX_SECONDS = 180f
+private const val FIRST_RAID_DELAY_SECONDS = 60f
+private const val RAID_GAP_MIN_SECONDS = 8 * 60f
+private const val RAID_GAP_MAX_SECONDS = 15 * 60f
+/** Warships fight boldly and are averagely handy - AiShip has no manoeuvre stat of its own, so
+ *  these stand in for one until ship armament is reworked in M10c. */
+private const val RAID_WARSHIP_MANEUVER = 55
+private const val RAID_WARSHIP_CAUTION = 0.25f
+/** Pirates press an attack on a merchantman harder than a navy presses a pirate - they are there
+ *  for the cargo, not to keep order. */
+private const val RAID_PIRATE_CAUTION = 0.2f
+/** How close every member must be before a band counts as formed up and sets out. */
+private const val RAID_RALLY_TOLERANCE = 260f
+/** Wake points of separation between one ship in the line and the next. */
+private const val FORMATION_TRAIL_WAYPOINTS = 2
+/** How far the leader sails before dropping another breadcrumb, and how many it keeps. Spacing
+ *  has to be short enough that steering from one point to the next never cuts a corner across
+ *  land, which is the entire reason a wake is safer than a shared route. */
+private const val WAKE_SPACING = 22f
+private const val WAKE_MAX_POINTS = 96
+/** How far off the line a straggler may be before it stops steering at its station and asks for
+ *  a proper route back to it. */
+private const val FORMATION_REJOIN_DISTANCE = 220f
+private const val FORMATION_REJOIN_INTERVAL = 1f
+/** Seconds between a hunter looking around for a target. */
+private const val HUNT_DECISION_INTERVAL = 2.5f
+/** Tries at finding somewhere a ship can actually be given a route to - see retargetAiShip. */
+private const val RETARGET_ATTEMPTS = 4
+/** How long a ship that could not be given a route waits before asking again. */
+private const val RETARGET_RETRY_SECONDS = 0.5f
+/** Courses that may be laid in one drawn frame. At roughly half a millisecond each this is a few
+ *  milliseconds of a sixteen-millisecond frame, whatever speed the world is running at. */
+private const val ROUTES_PER_FRAME = 6
+/** How wide a stretch of sea a cruising pirate calls its ground. */
+private const val CRUISING_GROUND_RADIUS = 320f
+/** How long a pirate works its ground before going home. Long enough to be worth the passage
+ *  out, short enough that the fleet keeps redistributing itself over a session. */
+private const val CRUISE_MIN_SECONDS = 4 * 60f
+private const val CRUISE_MAX_SECONDS = 8 * 60f
+/** Headings to try, in degrees off the line home, when working out of a pocket - see findWayOut. */
+private val STRAND_ESCAPE_ANGLES = intArrayOf(0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180)
+/** Headings to try either side of the intended course when the bow is towards a shore - see
+ *  steer. Wide enough to work off a headland, never so wide as to sail back the way it came. */
+private val SHORE_CLEARANCE_ANGLES = intArrayOf(25, -25, 50, -50, 75, -75, 100, -100)
+private const val AI_REPAIR_SECONDS = 150f
+private const val RAID_ATTACK_COOLDOWN_MIN = 20f
+private const val RAID_ATTACK_COOLDOWN_MAX = 40f
+/** How far a lookout sees a sail - the same distance for everyone, see Encounters.SIGHT_RADIUS. */
+private val LOOKOUT_RADIUS = Encounters.SIGHT_RADIUS
+/** How wide a berth a re-laid course gives the threat. */
+private const val THREAT_AVOID_RADIUS = 140f
+/** Seconds between lookout checks - pathfinding is not free, and a ship does not need to
+ *  reconsider its whole route sixty times a second. */
+private const val THREAT_CHECK_INTERVAL = 2f
+/** Tries at finding a sailable spot inside a raid before settling for its centre. */
+private const val PROWL_PLACEMENT_ATTEMPTS = 8
+/** Ports within this range of each other make for water someone actually sails. */
+private const val BUSY_CORRIDOR_RADIUS = 900f
+private val RAID_REGION_TINT = Color(0.45f, 0.10f, 0.10f, 0.22f)
+private val RAID_LABEL_COLOR = Color(1f, 0.85f, 0.80f, 0.9f)
+private const val RAID_LABEL_SCALE = 1.5f
+private const val RADIAL_TEXTURE_SIZE = 128
+/** Fraction of the radius given over to the soft edge. */
+private const val RADIAL_EDGE_SOFTNESS = 0.28f
+private const val SINK_MARK_SIZE = 90f
+private val SINK_MARK_PIRATE = Color(1f, 0.85f, 0.45f, 0.55f)
+private val SINK_MARK_NAVY = Color(1f, 0.45f, 0.40f, 0.55f)
 private val PIRATE_SEA_FOG = Color(0.16f, 0.14f, 0.20f, 0.34f)
 private val PIRATE_SEA_LABEL_COLOR = Color(0.90f, 0.87f, 0.80f, 0.85f)
 private const val PIRATE_SEA_LABEL_SCALE = 2.2f
@@ -176,6 +270,9 @@ private const val WATCHDOG_STUCK_DISTANCE = 2f
 private const val TRADE_SHIPS_PER_FACTION = 4
 private const val MILITARY_SHIPS_PER_FACTION = 3
 private const val PIRATE_SHIP_COUNT = 8
+/** What the fleet should always add up to, since every loss is replaced - see runWatchdog. */
+private const val EXPECTED_FLEET_SIZE =
+    (TRADE_SHIPS_PER_FACTION + MILITARY_SHIPS_PER_FACTION) * 4 + PIRATE_SHIP_COUNT
 private const val REP_LOSS_TRADE = -8
 private const val REP_LOSS_MILITARY = -15
 // M10b persistence (see PortRoyaleGame.giveUpCooldownFor): a ship that just failed to catch its
@@ -253,6 +350,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     private lateinit var shapeRenderer: ShapeRenderer
     private lateinit var batch: SpriteBatch
     private lateinit var fogTexture: Texture
+    private lateinit var radialTexture: Texture
     private lateinit var portLabelFont: BitmapFont
     private var portLabelBaseLineHeight = 0f
     private lateinit var mapTexture: Texture
@@ -294,6 +392,22 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     private val watchdog = WorldWatchdog(WATCHDOG_INTERVAL_SECONDS)
     /** Where each AI ship was at the previous watchdog sweep, for the "has not moved" check. */
     private val lastWatchdogPositions = mutableMapOf<AiShip, Vector2>()
+    private var activeRaid: PirateRaid? = null
+    /** The first raid of a session comes early on purpose. A new game otherwise spends eight
+     *  quiet minutes before the world does anything at all, which reads as nothing happening
+     *  rather than as a lull - and makes the feature almost impossible to check. Later gaps use
+     *  the real interval. */
+    private var secondsUntilNextRaid = FIRST_RAID_DELAY_SECONDS
+
+    /** Routes still affordable this frame - see routeTo. */
+    private var routeBudget = 0
+
+    /** Which ship the fleet sweep starts from this frame, so the rationing of courses comes round
+     *  to everyone rather than always falling on the same hulls - see updateAiShips. */
+    private var fleetScanOffset = 0
+    /** How many warships each power will commit to the next raid. Rises when a squadron is wiped
+     *  out, resets when one comes home. Per faction on purpose: they act independently. */
+    private val navalEscalation = mutableMapOf<Faction, Int>()
     private var debugOverlayVisible = false
 
     /** Last reputation tier the player was told about, per faction - see
@@ -305,6 +419,10 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     // Fixed-size pool of invisible random-event locations scattered across the water; each slot
     // independently holds a live point or counts down to respawning one somewhere else (see
     // updateSeaEvents()). A castaway event sets passengerDestination until delivered.
+    /** Ships already reported as having no way out, so a map problem is mentioned once rather
+     *  than sixty times a second - see findWayOut. */
+    private val boxedInReported = mutableSetOf<Int>()
+
     private val seaEventSlots = List(SEA_EVENT_POOL_SIZE) { SeaEventSlot() }
     private var passengerDestination: ResolvedPort? = null
 
@@ -378,6 +496,11 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         fogPixmap.fill()
         fogTexture = Texture(fogPixmap)
         fogPixmap.dispose()
+
+        // A soft disc, for anything that is a *place* rather than a rectangle of map. Fading to
+        // nothing at the rim matters as much as the shape: a hard circle would read as a drawn
+        // boundary, and a raid is a stretch of water where trouble is, not a fenced zone.
+        radialTexture = buildRadialTexture(RADIAL_TEXTURE_SIZE)
 
         portLabelFont = UiSkinFactory.generateFont(42)
         portLabelFont.color = Color.BLACK
@@ -521,6 +644,12 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         // game speed, only the simulated world should visibly accelerate.
         val worldDelta = Gdx.graphics.deltaTime * GameSpeed.multiplier
 
+        // Refilled before anything can spend it. Every cooldown in the AI is counted in game
+        // time, so at 20x the world wants twenty times as many courses per real second as it does
+        // at 1x - while the cost of laying them is paid in real seconds, out of the frame the
+        // player is watching. That is why the stutter only ever showed at speed.
+        routeBudget = ROUTES_PER_FRAME
+
         if (appState == AppState.PLAYING) {
             MarketState.update(worldDelta)
             GameClock.update(worldDelta)
@@ -545,7 +674,19 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             handleInput(worldDelta)
             if (huntedShip != null) updateShipHunt(worldDelta) else updateAutopilot(worldDelta)
             updateAiShips(worldDelta)
+            // Watched from inside the block that actually moves the world. Run from the render
+            // loop instead, it reported every ship at once as "not moving" the moment the player
+            // opened a port screen - which is not a stuck ship, it is a paused simulation, and
+            // thirty-nine such lines a session is exactly the noise this was built to avoid.
+            runWatchdog(worldDelta)
             checkAiEncounters()
+            // Game time, and in step with the ships. On real time the phases of a raid ran twenty
+            // times slower than the world around them at 20x speed, which is why the first raid
+            // turned up anywhere between three and eight minutes into a session instead of after
+            // the minute it is set to. And it belongs here rather than above, with the rest of the
+            // world: a raid whose clock drains while its ships are frozen in a port screen can
+            // expire without ever having happened.
+            updateRaids(worldDelta)
             updateSeaEvents(worldDelta)
             if (!updateDragPan()) updateCameraPan(Gdx.graphics.deltaTime)
             player.condition.accumulateFouling(worldDelta)
@@ -563,6 +704,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         batch.begin()
         batch.draw(mapTexture, 0f, 0f, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT)
         drawPirateSea()
+        drawRaidRegion()
         batch.end()
 
         batch.begin()
@@ -575,6 +717,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             drawMarketIndicators()
         }
         drawPirateSeaLabel()
+        drawRaidLabel()
         drawPortLabels()
         if (gameActive) drawHoveredGoodTooltip()
         batch.end()
@@ -600,7 +743,6 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             hudOverlayUI.setCaptains(player.captains.filter { !it.isIdle })
             hudOverlayUI.setReputation(player.reputation)
             announceReputationTierChanges()
-            runWatchdog(Gdx.graphics.deltaTime)
             hudOverlayUI.setDebugText(if (debugOverlayVisible) buildDebugText() else null)
             hudOverlayUI.render(Gdx.graphics.deltaTime)
         }
@@ -1110,9 +1252,12 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             }
         }
         val lair = pirateLairAnchor()
-        repeat(PIRATE_SHIP_COUNT) {
-            aiShips.add(AiShipFactory.pirate(lair.cpy()).anchoredAt(lair))
-        }
+        // Not all eight at the lair. Pirates return home and are replaced there, so seeding them
+        // there too meant a permanent crowd in the north-west corner and empty water everywhere
+        // else - the map's whole upper quarter thick with black sails and the rest untroubled.
+        // They begin where they would be after a passage out: already on station, spread over the
+        // busy corridors, with part of a cruise behind them.
+        repeat(PIRATE_SHIP_COUNT) { aiShips.add(pirateOnStation()) }
         scatterAlongRoutes()
         GameLog.log(
             GameLog.Category.AI,
@@ -1162,27 +1307,83 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     /** The lair itself, snapped to sailable water. It was measured to be open sea, but the map is
      *  due to be redrawn in M16 and a hand-drawn coastline could move under it. */
+    /** A pirate already at work somewhere worth working, with part of its cruise behind it.
+     *  Falls back to the lair only if no ground can be found at all. */
+    private fun pirateOnStation(): AiShip {
+        val ground = pickCruisingGround()
+        val start = ground ?: pirateBerth()
+        val ship = AiShipFactory.pirate(start.cpy()).anchoredAt(start)
+        if (ground != null) {
+            ship.voyage = PirateVoyage.CRUISING
+            ship.cruisingGround = ground.cpy()
+            ship.cruiseSecondsLeft = GameRandom.nextFloat(CRUISE_MIN_SECONDS * 0.2f, CRUISE_MAX_SECONDS)
+        }
+        return ship
+    }
+
     private fun pirateLairAnchor(): Vector2 {
         val lair = PirateSea.lair
         return worldMap.findNearestWater(lair.x, lair.y) ?: lair
     }
 
+    /** A berth in the anchorage: pirates ride at anchor spread across it rather than stacked on
+     *  one coordinate, which is what made them look like they were pecking at each other. */
+    private fun pirateBerth(): Vector2 {
+        repeat(PROWL_PLACEMENT_ATTEMPTS) {
+            val candidate = PirateSea.berth(
+                GameRandom.nextFloat(0f, MathUtils.PI2),
+                GameRandom.nextFloat(0f, 1f)
+            )
+            worldMap.findNearestWater(candidate.x, candidate.y)?.let { return it }
+        }
+        return pirateLairAnchor()
+    }
+
     private fun updateAiShips(delta: Float) {
+        updateEncounters(delta)
         val myTier = shipTier(player.ship)
-        for (ship in aiShips) {
+        // Started from a different ship each frame. Laying courses is rationed, and the ration is
+        // spent in the order ships are visited - so a fixed order means the same unlucky ships at
+        // the end of the list are refused every single time, for ever, while the ones at the
+        // front never wait. Rotating the starting point makes the wait everybody's in turn.
+        val fleetSize = aiShips.size
+        if (fleetSize == 0) return
+        fleetScanOffset = (fleetScanOffset + 1) % fleetSize
+        for (position in 0 until fleetSize) {
+            val ship = aiShips[(fleetScanOffset + position) % fleetSize]
             if (ship.giveUpCooldown > 0f) ship.giveUpCooldown -= delta
             // Self-healing, because prevention alone is not enough: A* refuses to plan a route
             // that STARTS on land, so a ship that has somehow ended up ashore can neither move
             // nor be given anywhere to go, and would sit there for the rest of the session.
             if (!worldMap.isWater(ship.position.x, ship.position.y)) refloat(ship)
+            repairInHomeWaters(ship, delta)
             if (ship.role == AiShipRole.PIRATE && ship.tier < myTier &&
                 shipPosition.dst(ship.position) < PIRATE_FLEE_AWARENESS_RADIUS
             ) {
                 if (fleeFromPlayer(ship, delta)) continue
             }
+            updateFlight(ship, delta)
+            avoidThreatIfNeeded(ship, delta)
             if (updatePursuit(ship, delta)) continue
             if (ship.pathIndex >= ship.path.size) {
+                // Asking for a route and being given nothing used to end the matter: the path
+                // stayed empty, the same question was asked again next frame, and the ship sat
+                // there for the rest of the session. It also asked several times per frame, and
+                // laying a course is the most expensive thing this game does - so a refusal now
+                // buys a moment's silence while findWayOut works the ship loose.
+                if (ship.retargetCooldown > 0f) {
+                    ship.retargetCooldown -= delta
+                    findWayOut(ship, delta)
+                    continue
+                }
                 retargetAiShip(ship)
+                // Only treat this as a ship that cannot be routed if it was actually refused on
+                // the merits. If the frame simply ran out of pathfinding allowance, the ship
+                // waits a frame - it is not lost.
+                if (ship.path.isEmpty() && routeBudget > 0) {
+                    ship.retargetCooldown = RETARGET_RETRY_SECONDS
+                    findWayOut(ship, delta)
+                }
                 continue
             }
             val target = ship.path[ship.pathIndex]
@@ -1193,14 +1394,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 ship.pathIndex++
                 continue
             }
-            val nx = dx / dist
-            val ny = dy / dist
-            val nextX = ship.position.x + nx * ship.speed * delta
-            val nextY = ship.position.y + ny * ship.speed * delta
-            if (worldMap.isWater(nextX, nextY)) {
-                ship.position.set(nextX, nextY)
-                ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
-            } else {
+            if (!steer(ship, dx / dist, dy / dist, delta)) {
                 // The route was laid over water, but a ship does not stay exactly on it: it counts
                 // as arrived anywhere within AI_SHIP_ARRIVE_THRESHOLD of a waypoint, and
                 // separateAiShips nudges it sideways when crowded. Around a coastal port only
@@ -1211,6 +1405,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 retargetAiShip(ship)
             }
         }
+        resolveContacts()
         // After everyone has moved, not during: separating mid-loop would push ships that have
         // already had their turn this frame and leave the result dependent on list order.
         separateAiShips(delta)
@@ -1273,11 +1468,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         val len = Vector2(dx, dy).len().coerceAtLeast(0.01f)
         val nx = dx / len
         val ny = dy / len
-        val newX = ship.position.x + nx * ship.speed * delta
-        val newY = ship.position.y + ny * ship.speed * delta
-        if (worldMap.isWater(newX, newY)) {
-            ship.position.set(newX, newY)
-            ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
+        if (steer(ship, nx, ny, delta)) {
             ship.pursuitBlockedFor = 0f
             return true
         }
@@ -1369,6 +1560,12 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             appendLine("fps ${Gdx.graphics.framesPerSecond}   mode $gameMode   speed ${GameSpeed.multiplier}x")
             appendLine("player ${shipPosition.x.toInt()}, ${shipPosition.y.toInt()}   nav $navMode")
             appendLine("ai ships ${aiShips.size} (${aiShips.count { it.isPursuing }} pursuing)   ports ${resolvedPorts.size}")
+            appendLine(
+                activeRaid?.let {
+                    "raid ${it.label}: ${it.pirates().size} pirates, ${it.warships().size} navy, " +
+                        "${it.secondsRemaining.toInt()}s left"
+                } ?: "no raid (next in ${secondsUntilNextRaid.toInt()}s)"
+            )
             appendLine("nearest: $nearestLine")
             append("F12 screenshot   diagnostics: ${DiagnosticsFiles.directoryPath ?: "unavailable"}")
         }
@@ -1423,8 +1620,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
      *  should never reach; each has a matching bug in this file's history. */
     private fun runWatchdog(delta: Float) {
         watchdog.update(delta) { reporter ->
-            for ((index, ship) in aiShips.withIndex()) {
-                val id = "${ship.displayName}#$index"
+            for (ship in aiShips) {
+                val id = "${ship.displayName}#${ship.id}"
                 val position = ship.position
                 if (!position.x.isFinite() || !position.y.isFinite()) {
                     reporter.problem("$id/nan") { "$id has a non-finite position ($position)" }
@@ -1449,6 +1646,18 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             }
             lastWatchdogPositions.keys.retainAll(aiShips.toSet())
 
+            // Every loss is replaced, so the fleet is a fixed size. If it is not, a replacement
+            // failed to be created somewhere and the seas are quietly emptying - which is
+            // precisely the sort of slow drain nobody can spot by eye.
+            if (aiShips.size < EXPECTED_FLEET_SIZE) {
+                reporter.problem("fleet/short") {
+                    "fleet is ${aiShips.size} ships, expected $EXPECTED_FLEET_SIZE " +
+                        "(${aiShips.count { it.role == AiShipRole.TRADE }} trade, " +
+                        "${aiShips.count { it.role == AiShipRole.MILITARY }} military, " +
+                        "${aiShips.count { it.role == AiShipRole.PIRATE }} pirate)"
+                }
+            }
+
             for (captain in player.captains) {
                 if (captain.cargoUnits > 0 && captain.cargoGood == null) {
                     reporter.problem("${captain.name}/phantom-cargo") {
@@ -1471,6 +1680,74 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     /** Puts a beached ship back on the nearest water and clears its stale route. Logged, not
      *  silent: needing this is a symptom, and if it starts happening often the cause is worth
      *  finding rather than papering over. */
+    /**
+     * Wear heals in home waters, at a careener's pace.
+     *
+     * Persisting battle damage without this is a one-way ratchet: every hull in the world drifts
+     * towards nought and the seas quietly empty of everyone who ever fought. A ship that has made
+     * it back to a friendly harbour - or, for pirates, to the anchorage - is a ship being patched
+     * up, and is fit again in about [AI_REPAIR_SECONDS]. Away from home nothing heals, so a fleet
+     * fighting wave after wave without going back does get worn down and can be finished.
+     */
+    private fun repairInHomeWaters(ship: AiShip, delta: Float) {
+        if (ship.currentHull >= ship.maxHull) return
+        val sheltered = if (ship.role == AiShipRole.PIRATE) {
+            PirateSea.contains(ship.position)
+        } else {
+            resolvedPorts.any {
+                it.port.faction == ship.faction &&
+                    it.worldPos.dst(ship.position) < WorldScale.PORT_SAFE_RADIUS
+            }
+        }
+        if (!sheltered) return
+        ship.repairProgress += ship.maxHull * delta / AI_REPAIR_SECONDS
+        val whole = ship.repairProgress.toInt()
+        if (whole > 0) {
+            ship.repairProgress -= whole
+            ship.currentHull = (ship.currentHull + whole).coerceAtMost(ship.maxHull)
+        }
+    }
+
+    /**
+     * Last resort for a ship the pathfinder will not give a route to.
+     *
+     * A* plans over a grid sampled from the map, and it flatly refuses to plan out of a pocket of
+     * water it cannot connect to the open sea - a bay behind a headland, a gap between two
+     * Bahamian cays. Ordinary patrol movement can never get into one, because it only ever
+     * follows a route A* already approved; a chase can, because it steers straight at its target
+     * and only ever checks the very next step for land.
+     *
+     * So the ship edges back the way it came - towards its anchor, the water it demonstrably
+     * reached this place from - trying progressively wider angles until one of them is sea. After
+     * a few seconds of that it is back somewhere routable and carries on normally. Reported once
+     * per ship, because a spot that keeps swallowing hulls is a map problem worth knowing about.
+     */
+    private fun findWayOut(ship: AiShip, delta: Float) {
+        ship.quarry = null
+        val home = Vector2(ship.anchor).sub(ship.position)
+        // Sitting exactly on its own anchor, so "back the way you came" means nothing. Any
+        // direction will do - the point is to stop being where the pathfinder has nothing to say.
+        if (home.len() < 1f) home.set(1f, 0f)
+        home.nor()
+        val step = ship.speed * delta
+        for (turn in STRAND_ESCAPE_ANGLES) {
+            val heading = Vector2(home).rotateDeg(turn.toFloat())
+            val nextX = ship.position.x + heading.x * step
+            val nextY = ship.position.y + heading.y * step
+            if (!worldMap.isWater(nextX, nextY)) continue
+            ship.position.set(nextX, nextY)
+            ship.headingDeg = MathUtils.atan2(heading.y, heading.x) * MathUtils.radDeg
+            return
+        }
+        if (boxedInReported.add(ship.id)) {
+            GameLog.log(
+                GameLog.Category.AI,
+                "${ship.displayName}#${ship.id} has no sailable way out at " +
+                    "${ship.position.x.toInt()}, ${ship.position.y.toInt()}"
+            )
+        }
+    }
+
     private fun refloat(ship: AiShip) {
         val water = worldMap.findNearestWater(ship.position.x, ship.position.y) ?: return
         GameLog.log(
@@ -1481,6 +1758,761 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         ship.position.set(water)
         ship.path = emptyList()
         ship.pathIndex = 0
+    }
+
+    // --- M11d: pirate raids -------------------------------------------------------------------
+
+    /**
+     * Runs the raid clock: starts one when the sea has been quiet long enough, brings the navies
+     * in after a delay, lets the two sides fight where they meet, and winds the whole thing up.
+     *
+     * Everything here is anchor manipulation plus the combat resolver that already exists. There
+     * is no raid-specific movement code at all - drafted ships simply live somewhere else for a
+     * while and the weighting from M11c does the rest.
+     */
+    private fun updateRaids(delta: Float) {
+        val raid = activeRaid
+        if (raid == null) {
+            secondsUntilNextRaid -= delta
+            if (secondsUntilNextRaid <= 0f) beginRaid()
+            return
+        }
+
+        when (raid.phase) {
+            RaidPhase.GATHERING -> {
+                // Nothing is announced and no clock runs yet: a raid that is still assembling has
+                // not happened, and telling the player now sends them out to look at empty sea.
+                if (raid.formedUp(aiShips, RAID_RALLY_TOLERANCE)) {
+                    raid.phase = RaidPhase.SAILING
+                    raid.band.forEach { it.anchor = raid.centre.cpy() }
+                    GameLog.log(GameLog.Category.AI, "raid ${raid.label}: band formed up, setting out")
+                }
+            }
+            RaidPhase.SAILING -> {
+                keepFormation(raid, delta)
+                val head = raid.leader(aiShips)
+                if (head != null && head.position.dst(raid.centre) <= raid.radius) {
+                    raid.phase = RaidPhase.RAIDING
+                    announceRaid(raid)
+                }
+            }
+            RaidPhase.RAIDING -> {
+                if (!raid.responseSent) {
+                    raid.responseDelay -= delta
+                    if (raid.responseDelay <= 0f) sendNavalResponse(raid)
+                }
+                raid.squadrons.values.forEach { keepLineAhead(it, delta) }
+                // No hunting logic of its own: the ships gathered here fight by the same standing
+                // rules as everywhere else on the map (see updateEncounters). A raid supplies the
+                // pirates and the reason a navy sails out, nothing more.
+                raid.secondsRemaining -= delta
+            }
+        }
+
+        // Ends early once the corridor is clear: "the activity has subsided" should not be a lie
+        // told while three pirates are still working the route.
+        if (raid.secondsRemaining <= 0f || raid.pirates().isEmpty()) endRaid(raid)
+    }
+
+    /** Where a raid needs this ship to be, or null if it is not in one. */
+    private fun raidDestinationFor(ship: AiShip): Vector2? {
+        val raid = activeRaid ?: return null
+        if (ship in raid.band) {
+            return when (raid.phase) {
+                RaidPhase.GATHERING -> pirateBerth()
+                RaidPhase.SAILING -> raid.centre
+                // On station the band opens out and works the whole corridor. Sending them to the
+                // centre itself parks all three on one spot with nothing left to sail to, which
+                // is both wrong (a raid is a patrolled stretch, not a picket) and what the
+                // watchdog kept reporting as pirates that had stopped moving.
+                RaidPhase.RAIDING -> prowlPointInside(raid)
+            }
+        }
+        if (raid.squadrons.values.any { ship in it }) {
+            return if (raid.contains(ship.position)) prowlPointInside(raid) else raid.centre
+        }
+        return null
+    }
+
+    /** Somewhere to be inside the raid - sailable, and actually within the circle rather than
+     *  snapped to water outside it by a coastline. */
+    private fun prowlPointInside(raid: PirateRaid): Vector2 {
+        repeat(PROWL_PLACEMENT_ATTEMPTS) {
+            val angle = GameRandom.nextFloat(0f, MathUtils.PI2)
+            val distance = GameRandom.nextFloat(raid.radius * 0.25f, raid.radius * 0.9f)
+            val candidate = Vector2(
+                raid.centre.x + MathUtils.cos(angle) * distance,
+                raid.centre.y + MathUtils.sin(angle) * distance
+            )
+            worldMap.findNearestWater(candidate.x, candidate.y)
+                ?.takeIf { raid.contains(it) && !isNearAnyPort(it) }
+                ?.let { return it }
+        }
+        return raid.centre
+    }
+
+    private fun announceRaid(raid: PirateRaid) {
+        raid.markAnnounced()
+        GameLog.log(GameLog.Category.AI, "raid ${raid.label}: band on station, raiding begins")
+        eventToastUI.show("Pirate activity reported between ${raid.label}. Trade there is unsafe.", IconFactory.debt)
+    }
+
+    /**
+     * Line ahead: followers sail the leader's own path, a few waypoints behind it.
+     *
+     * They copy the route rather than steering to an offset beside the leader because the route
+     * is a chain of water cells by construction, while an offset abeam runs a follower onto the
+     * shore every time the band passes a headland. Trailing along the same track is also what a
+     * squadron actually looked like.
+     */
+    private fun keepFormation(raid: PirateRaid, delta: Float) {
+        val head = raid.leader(aiShips) ?: return
+        if (head.path.isEmpty() || head.pathIndex >= head.path.size) retargetAiShip(head)
+        keepLineAhead(listOf(head) + raid.followers(aiShips), delta)
+    }
+
+    /** Puts [ships] in line ahead behind the first of them still afloat. */
+    /**
+     * Puts [ships] in line astern behind the first of them still afloat - by having each follow
+     * the water the leader has *already sailed through*, not the route the leader is about to.
+     *
+     * The difference is not academic; it cost a raid a third of its strength. Followers used to
+     * be handed the leader's current route and dropped into it a few waypoints back. That route
+     * begins wherever the leader is now, so the moment the leader rounded a peninsula the last
+     * ship in the line was aimed at a waypoint on the far side of the land. It sailed into the
+     * shore, sat there, eventually gave up and went home, and the band went on without it.
+     *
+     * A wake cannot do that. Every point in it is water a hull has demonstrably crossed, and
+     * consecutive points are close enough together that steering from one to the next is safe by
+     * construction - round a headland the wake goes round the headland too. A ship that has
+     * somehow ended up a long way off the line asks the pathfinder for a proper route back to it
+     * rather than steering blindly at it.
+     */
+    private fun keepLineAhead(ships: List<AiShip>, delta: Float) {
+        val afloat = ships.filter { ship -> aiShips.any { it === ship } }
+        val head = afloat.firstOrNull() ?: return
+        if (head.path.isEmpty() || head.pathIndex >= head.path.size) retargetAiShip(head)
+        recordWake(head)
+
+        val wake = head.wake
+        if (wake.size < 2) return
+        afloat.drop(1).forEachIndexed { order, follower ->
+            val station = wake.lastIndex - FORMATION_TRAIL_WAYPOINTS * (order + 1)
+            if (station < 0) return@forEachIndexed // the wake is not long enough to hold station in yet
+            val post = wake[station]
+
+            if (follower.position.dst(post) > FORMATION_REJOIN_DISTANCE) {
+                // Straggling badly - far enough off the line that steering straight at it could
+                // mean crossing land. Rejoin by a real route, and not more than once a second.
+                follower.repathCooldown -= delta
+                if (follower.repathCooldown <= 0f) {
+                    routeTo(follower.position, post.cpy())?.takeIf { it.isNotEmpty() }?.let {
+                        follower.repathCooldown = FORMATION_REJOIN_INTERVAL
+                        follower.path = it
+                        follower.pathIndex = 0
+                    }
+                }
+                return@forEachIndexed
+            }
+            follower.path = wake.toList()
+            follower.pathIndex = station
+        }
+    }
+
+    /** Drops a breadcrumb behind the leader once it has made enough ground to be worth one, and
+     *  forgets the oldest so the trail cannot grow without bound. */
+    private fun recordWake(leader: AiShip) {
+        val wake = leader.wake
+        val last = wake.lastOrNull()
+        if (last != null && last.dst(leader.position) < WAKE_SPACING) return
+        wake.add(leader.position.cpy())
+        while (wake.size > WAKE_MAX_POINTS) wake.removeAt(0)
+    }
+
+    /**
+     * On station, the band spreads out and starts taking merchantmen - which is the whole point
+     * of a raid, and the thing the corridor's reputation is made of.
+     *
+     * Only AI traders: the player and hired captains already have their own encounter systems,
+     * better ones, and a raid threatens them simply by putting three pirates where there was
+     * usually none.
+     */
+    /**
+     * Being run down: the merchantman drops what it was doing and makes for harbour.
+     *
+     * The decision is taken **once** per pursuer and then held. The previous version re-decided
+     * every frame whether to run for port or straight away, and since the geometry shifts as both
+     * ships move, that judgement kept flipping - which is what the eye read as merchantmen jinking
+     * pointlessly back and forth instead of fleeing. Commitment is the whole mechanic.
+     *
+     * From there it is purely a question of the two hulls' speeds, as it should be: a fast
+     * merchantman reaches harbour, a slow one is caught, and nothing anywhere gives either of them
+     * a turn of speed it does not have.
+     */
+    private fun updateFlight(ship: AiShip, delta: Float) {
+        if (ship.role != AiShipRole.TRADE) return
+        val hunter = aiShips.firstOrNull { it.quarry === ship }
+        if (hunter == null) {
+            // Nobody is after it any more - but it goes on running for a while yet, rather than
+            // turning back the instant the pirate breaks off.
+            ship.fleeCommitment -= delta
+            if (ship.fleeCommitment <= 0f) ship.fleeingFrom = null
+            return
+        }
+        ship.fleeCommitment = Encounters.FLIGHT_COMMITMENT_SECONDS
+        if (ship.fleeingFrom === hunter) return
+
+        val refuge = refugeFrom(ship, hunter) ?: return
+        val route = routeTo(ship.position, refuge.cpy())
+        // Marked as fleeing only once there is actually somewhere to flee along. Setting it first
+        // meant that a course refused for any reason - no route, or simply no allowance left this
+        // frame - left the ship permanently convinced it was running, so it never asked again and
+        // never took evasive action of any kind. It sailed its trading route into the pirate.
+        if (route.isNullOrEmpty()) return
+        ship.fleeingFrom = hunter
+        ship.path = route
+        ship.pathIndex = 0
+    }
+
+    /** The harbour to run for: the nearest one that does not mean sailing back past the pursuer.
+     *  Running towards the ship chasing you is not a plan. */
+    private fun refugeFrom(ship: AiShip, hunter: AiShip): Vector2? {
+        val away = Vector2(ship.position).sub(hunter.position)
+        if (away.len() < 0.01f) return null
+        away.nor()
+        val ahead = resolvedPorts.filter {
+            Vector2(it.approachPoint).sub(ship.position).nor().dot(away) > 0f
+        }
+        return (ahead.ifEmpty { resolvedPorts })
+            .minByOrNull { it.approachPoint.dst(ship.position) }
+            ?.approachPoint
+    }
+
+    /**
+     * The world's standing rules of engagement, applied to every ship every frame whether or not
+     * anything special is happening.
+     *
+     * This used to exist only inside a raid, which meant the map had two different physics: a
+     * pirate that happened to be inside a red circle hunted merchantmen, and an identical pirate
+     * fifty units outside it sailed politely past them. Events are supposed to concentrate
+     * trouble, not to be the only place trouble is possible - so the deciding, the chasing and
+     * the fighting all live here now, and a raid merely arranges for more pirates to be in one
+     * place at one time.
+     *
+     * Choosing is deliberately slow ([HUNT_DECISION_INTERVAL]) and sticky: a hunter commits to
+     * one target and stays after it. Re-deciding every frame would re-roll the odds sixty times a
+     * second, which turns any long-odds attack into a certainty and makes the roll meaningless.
+     */
+    private fun updateEncounters(delta: Float) {
+        val fleetSize = aiShips.size
+        if (fleetSize == 0) return
+        for (position in 0 until fleetSize) {
+            val hunter = aiShips[(fleetScanOffset + position) % fleetSize]
+            updateVoyage(hunter, delta)
+            if (hunter.attackCooldown > 0f) {
+                // Reloading, boarding, sorting out the rigging - whatever it is, it is not
+                // available for another fight, and should not be shadowing a target either.
+                hunter.attackCooldown -= delta
+                breakOffChase(hunter, rest = false)
+                continue
+            }
+            if (hunter.role == AiShipRole.TRADE) continue
+            val current = hunter.quarry
+            if (current != null) {
+                pressChase(hunter, current, delta)
+                continue
+            }
+            hunter.huntCheckCooldown -= delta
+            if (hunter.huntCheckCooldown > 0f) continue
+            hunter.huntCheckCooldown = HUNT_DECISION_INTERVAL
+            pickQuarry(hunter)?.let { beginChase(hunter, it) }
+        }
+    }
+
+    /**
+     * Carrying on a chase, and knowing when to stop.
+     *
+     * A chase is a course like any other course in this game: laid by the pathfinder, refreshed
+     * every second or so onto where the quarry has got to, and sailed by the ordinary movement
+     * code. It used to be per-frame steering straight at the target, which fought with the ship's
+     * own route, jammed against every headland and produced the jinking back-and-forth that made
+     * the whole map look unnatural.
+     *
+     * And every chase ends. It ends on catching up, on the quarry reaching harbour, on the clock,
+     * or - the honest one - on the hunter noticing that the range has stopped shrinking, which
+     * means the ship ahead is simply faster and no amount of persistence will change that.
+     */
+    private fun pressChase(hunter: AiShip, quarry: AiShip, delta: Float) {
+        hunter.chaseSeconds += delta
+        val range = hunter.position.dst(quarry.position)
+        if (range < hunter.chaseBestRange - Encounters.CHASE_PROGRESS_MARGIN) {
+            hunter.chaseBestRange = range
+            hunter.chaseStalledFor = 0f
+        } else {
+            hunter.chaseStalledFor += delta
+        }
+
+        val hopeless = hunter.chaseStalledFor >= Encounters.CHASE_STALL_SECONDS
+        val overdue = hunter.chaseSeconds >= Encounters.CHASE_MAX_SECONDS
+        if (hopeless || overdue || !worthChasing(hunter, quarry)) {
+            breakOffChase(hunter, rest = true)
+            return
+        }
+
+        hunter.repathCooldown -= delta
+        if (hunter.repathCooldown > 0f) return
+        val route = routeTo(hunter.position, quarry.position.cpy())
+        // The clock restarts on a course actually laid, not on the attempt. Otherwise a chase
+        // refused for want of allowance sits on stale aim for the full interval anyway.
+        if (route.isNullOrEmpty()) return
+        hunter.repathCooldown = if (range < Encounters.CHASE_CLOSE_RANGE) {
+            Encounters.CHASE_CLOSE_REPATH_SECONDS
+        } else {
+            Encounters.CHASE_REPATH_SECONDS
+        }
+        hunter.path = route
+        hunter.pathIndex = 0
+    }
+
+    private fun beginChase(hunter: AiShip, quarry: AiShip) {
+        hunter.quarry = quarry
+        hunter.chaseSeconds = 0f
+        hunter.chaseStalledFor = 0f
+        hunter.chaseBestRange = hunter.position.dst(quarry.position)
+        hunter.repathCooldown = 0f
+    }
+
+    /** Ends a chase. [rest] marks a genuine give-up, which buys the rest of the world a long
+     *  breather from this ship - a break-off forgotten in five seconds is not a break-off. */
+    private fun breakOffChase(hunter: AiShip, rest: Boolean) {
+        if (hunter.quarry == null) return
+        hunter.quarry = null
+        hunter.chaseSeconds = 0f
+        hunter.chaseStalledFor = 0f
+        hunter.chaseBestRange = Float.MAX_VALUE
+        if (rest) hunter.giveUpCooldown = Encounters.CHASE_BREAK_OFF_SECONDS
+        // Its route now ends wherever the chase left off; ask for a proper one next frame.
+        hunter.path = emptyList()
+        hunter.pathIndex = 0
+    }
+
+    /**
+     * Which leg of its cruise a pirate is on.
+     *
+     * Out to a cruising ground, work it for a while, go home - and only the middle leg hunts
+     * shipping. This is what puts pirates on the trade routes instead of in a permanent brawl
+     * outside their own lair: a pirate that stops for every sail it passes on the way out never
+     * gets anywhere, which is exactly what the world looked like.
+     *
+     * The ground itself is chosen by how busy the water is, not by how near home it is, so the
+     * fleet spreads across the whole map rather than orbiting one corner of it.
+     */
+    private fun updateVoyage(ship: AiShip, delta: Float) {
+        if (ship.role != AiShipRole.PIRATE) return
+        when (ship.voyage) {
+            PirateVoyage.TRANSIT -> {
+                val ground = ship.cruisingGround ?: pickCruisingGround().also { ship.cruisingGround = it }
+                if (ground != null && ship.position.dst(ground) < CRUISING_GROUND_RADIUS) {
+                    ship.voyage = PirateVoyage.CRUISING
+                    ship.cruiseSecondsLeft = GameRandom.nextFloat(CRUISE_MIN_SECONDS, CRUISE_MAX_SECONDS)
+                    ship.anchor = ground.cpy()
+                }
+            }
+            PirateVoyage.CRUISING -> {
+                ship.cruiseSecondsLeft -= delta
+                if (ship.cruiseSecondsLeft <= 0f) {
+                    ship.voyage = PirateVoyage.HOMEBOUND
+                    ship.anchor = PirateSea.lair.cpy()
+                    breakOffChase(ship, rest = false)
+                    ship.path = emptyList()
+                    ship.pathIndex = 0
+                }
+            }
+            PirateVoyage.HOMEBOUND -> {
+                if (ship.position.dst(PirateSea.lair) < PirateSea.LAIR_RADIUS) {
+                    ship.voyage = PirateVoyage.TRANSIT
+                    ship.cruisingGround = pickCruisingGround()
+                    ship.path = emptyList()
+                    ship.pathIndex = 0
+                }
+            }
+        }
+    }
+
+    /** Working the ground: short hops around it rather than a picket on one spot, so a cruising
+     *  pirate covers the water it came to cover. */
+    private fun prowlNearGround(ship: AiShip): Vector2? {
+        val ground = ship.cruisingGround ?: return null
+        repeat(PROWL_PLACEMENT_ATTEMPTS) {
+            val angle = GameRandom.nextFloat(0f, MathUtils.PI2)
+            val distance = GameRandom.nextFloat(CRUISING_GROUND_RADIUS * 0.3f, CRUISING_GROUND_RADIUS)
+            val spot = Vector2(
+                ground.x + MathUtils.cos(angle) * distance,
+                ground.y + MathUtils.sin(angle) * distance
+            )
+            if (worldMap.isWater(spot.x, spot.y) && !isNearAnyPort(spot)) return spot
+        }
+        return ground.cpy()
+    }
+
+    /** Somewhere worth working: weighted by how many other harbours are within sailing distance,
+     *  because that is where the shipping is. Deliberately not weighted by distance from the lair
+     *  - that weighting is what kept every pirate in the same stretch of water. */
+    private fun pickCruisingGround(): Vector2? {
+        if (resolvedPorts.isEmpty()) return null
+        val port = GameRandom.pickWeighted(resolvedPorts) { candidate ->
+            1f + resolvedPorts.count { it !== candidate && it.worldPos.dst(candidate.worldPos) < BUSY_CORRIDOR_RADIUS }
+        }
+        return prowlPointOutside(port)
+    }
+
+    /** A chase is over once the quarry has left the world, reached safe water, or simply drawn
+     *  far enough ahead - with some slack past sighting range, or a target drifting one unit too
+     *  far would end the pursuit and immediately restart it. */
+    private fun worthChasing(hunter: AiShip, quarry: AiShip): Boolean =
+        aiShips.any { it === quarry } &&
+            !isNearAnyPort(quarry.position) &&
+            !isNearAnyPort(hunter.position) &&
+            hunter.position.dst(quarry.position) < Encounters.SIGHT_RADIUS * Encounters.GIVE_UP_MULTIPLIER
+
+    /**
+     * Looking around, sizing up the nearest thing worth attacking, and deciding whether to try.
+     * The decision is a roll against [Encounters.odds] rather than a threshold: a rule like
+     * "attack anything weaker" makes every meeting on the map a foregone conclusion, whereas
+     * sliding odds leave a heavy pirate usually willing to take on a patrol and a light one
+     * occasionally reckless.
+     *
+     * Harbours are safe water for everyone, hunter and hunted alike.
+     */
+    private fun pickQuarry(hunter: AiShip): AiShip? {
+        if (isNearAnyPort(hunter.position)) return null
+        // A ship that has just given up a chase leaves everything alone for a while. This was
+        // never consulted before, so a hunter could drop one target and seize the next two and a
+        // half seconds later - which is no give-up at all.
+        if (hunter.giveUpCooldown > 0f) return null
+        val candidate = aiShips
+            .filter {
+                it !== hunter &&
+                    Encounters.isHostile(hunter.role, it.role) &&
+                    // Merchantmen are only fair game to a pirate actually on station. Navies and
+                    // pirates, though, take notice of each other on any leg of any voyage.
+                    (it.role != AiShipRole.TRADE || Encounters.huntsShipping(hunter.role, hunter.voyage)) &&
+                    it.position.dst(hunter.position) < Encounters.SIGHT_RADIUS &&
+                    !isNearAnyPort(it.position)
+            }
+            .minByOrNull { it.position.dst(hunter.position) } ?: return null
+        return if (GameRandom.nextFloat(0f, 1f) < Encounters.odds(hunter, candidate)) candidate else null
+    }
+
+    /**
+     * Settles every pair that ended this frame within touching distance.
+     *
+     * Deliberately after the movement pass rather than inside it. A fight can sink a ship, and
+     * sinking removes it from [aiShips] while its replacement is added to the same list - doing
+     * that partway through iterating it is exactly what brought the world down with a
+     * ConcurrentModificationException. The pairs are collected into a list of their own first,
+     * so the fighting is free to change the fleet.
+     */
+    private fun resolveContacts() {
+        val alongside = aiShips.mapNotNull { hunter ->
+            val quarry = hunter.quarry ?: return@mapNotNull null
+            if (hunter.position.dst(quarry.position) < Encounters.CONTACT_RADIUS) hunter to quarry else null
+        }
+        for ((hunter, quarry) in alongside) {
+            // Either party may already have gone down in an earlier fight this same frame.
+            if (aiShips.none { it === hunter } || aiShips.none { it === quarry }) continue
+            resolveEncounter(hunter, quarry)
+        }
+    }
+
+    /**
+     * Hull to hull, settled by the same resolver the player's own battles and a captain's use,
+     * from both ships' real stats and the damage each is already carrying. Nothing here knows
+     * whether a raid is running, which is exactly why a navy patrol can lose a ship to a pirate
+     * on an ordinary afternoon with no event in sight.
+     */
+    private fun resolveEncounter(hunter: AiShip, target: AiShip) {
+        val caution = if (hunter.role == AiShipRole.PIRATE) RAID_PIRATE_CAUTION else RAID_WARSHIP_CAUTION
+        val outcome = FleetCombatResolver.resolve(
+            shipMaxHull = hunter.maxHull,
+            shipStartHull = hunter.currentHull,
+            shipMinDamage = hunter.minDamage,
+            shipMaxDamage = hunter.maxDamage,
+            shipManeuverability = RAID_WARSHIP_MANEUVER,
+            caution = caution,
+            enemy = target
+        )
+        hunter.currentHull = outcome.remainingHull.coerceAtLeast(0)
+        hunter.quarry = null
+        hunter.attackCooldown = GameRandom.nextFloat(RAID_ATTACK_COOLDOWN_MIN, RAID_ATTACK_COOLDOWN_MAX)
+        when (outcome.result) {
+            FleetCombatResult.VICTORY -> sinkShip(target, hunter.displayName)
+            FleetCombatResult.DEFEAT -> sinkShip(hunter, target.displayName)
+            FleetCombatResult.FLED -> {
+                // Broke off with both still afloat. A pirate that has had enough leaves the
+                // corridor it was drafted into rather than circling back for more.
+                if (hunter.role == AiShipRole.PIRATE) activeRaid?.release(hunter)
+                hunter.giveUpCooldown = GIVE_UP_COOLDOWN_CAUTIOUS
+            }
+        }
+    }
+
+    /**
+     * What this ship, in its role, considers dangerous enough to plan a course around.
+     *
+     * A merchantman runs from any pirate - it has cargo to lose and no business trading shots. A
+     * pirate weighs it up instead: a heavy one will stand and fight a patrol (that decision is
+     * [pickQuarry]'s), but one plainly outgunned gets out of the way. Warships avoid nobody -
+     * clearing the sea lanes is the job.
+     */
+    private fun threatTo(ship: AiShip): AiShip? = when (ship.role) {
+        AiShipRole.TRADE -> aiShips.firstOrNull {
+            it.role == AiShipRole.PIRATE && it.position.dst(ship.position) < LOOKOUT_RADIUS
+        }
+        AiShipRole.PIRATE -> aiShips.firstOrNull {
+            it.role == AiShipRole.MILITARY &&
+                it.position.dst(ship.position) < LOOKOUT_RADIUS &&
+                Encounters.shouldAvoid(ship, it)
+        }
+        AiShipRole.MILITARY -> null
+    }
+
+    /**
+     * A merchantman with a lookout: sighting a pirate, it changes its plans rather than its
+     * physics. If a harbour is nearer than the pirate it runs for it and waits there; otherwise it
+     * lays a new course around the threat. Whether that works is then purely a question of the two
+     * ships' speeds - a fast pirate runs it down, a slow one never closes.
+     *
+     * This is the same rule captains already follow (see evadeIfNeeded), now given to NPC traders,
+     * so every ship in the world reacts to danger the same way and only the player's hand on the
+     * tiller differs. It replaces a version that simply shoved the ship away from the pirate each
+     * frame, which fought with its own route (a step back, a step forward, minutes of twitching in
+     * place) and, worse, granted a speed bonus out of nowhere.
+     */
+    private fun avoidThreatIfNeeded(ship: AiShip, delta: Float) {
+        // Already committed to running something down, or to running away: a ship cannot be
+        // closing in, fleeing and idly re-routing all at once. Flight outranks a lookout's
+        // sighting, because it is the same sighting acted on more seriously.
+        if (ship.quarry != null || ship.fleeingFrom != null) return
+        ship.threatCheckCooldown -= delta
+        if (ship.threatCheckCooldown > 0f) return
+        ship.threatCheckCooldown = THREAT_CHECK_INTERVAL
+
+        val threat = threatTo(ship)
+        if (threat == null) {
+            ship.avoidedThreat = null
+            return
+        }
+        // Already reacted to this one; re-laying the same course every couple of seconds would
+        // just burn pathfinding and make the ship dither.
+        if (ship.avoidedThreat === threat) return
+        ship.avoidedThreat = threat
+        if (isNearAnyPort(ship.position)) return
+
+        val refuge = resolvedPorts.minByOrNull { it.approachPoint.dst(ship.position) } ?: return
+        val runForPort = refuge.approachPoint.dst(ship.position) < threat.position.dst(ship.position)
+        val destination = if (runForPort) refuge.approachPoint else ship.path.lastOrNull() ?: refuge.approachPoint
+
+        val route = routeAvoiding(ship.position, destination, threat.position, THREAT_AVOID_RADIUS)
+        if (!route.isNullOrEmpty()) {
+            ship.path = route
+            ship.pathIndex = 0
+        }
+    }
+
+    private fun beginRaid() {
+        // Weighted toward busy water: a corridor with several other harbours around it is one
+        // ships actually use, and a raid there is felt. The player's own routes are deliberately
+        // NOT part of this - the world should not arrange its troubles around them.
+        val from = GameRandom.pickWeighted(resolvedPorts) { port ->
+            1f + resolvedPorts.count { it !== port && it.worldPos.dst(port.worldPos) < BUSY_CORRIDOR_RADIUS }
+        }
+        // A corridor, not two ports picked out of a hat: the second is drawn from the handful
+        // nearest the first, so the raid sits on a stretch someone would plausibly sail.
+        // The pair must be far enough apart that the midpoint clears both harbours' safe water.
+        // Grenada and Saint-Pierre are 283 units apart, so their midpoint sat 141 from
+        // Saint-Pierre - inside its safe radius of 160 - and the whole raid gathered somewhere
+        // the rules forbid anything from happening. Ships arrived and pecked at each other.
+        val to = resolvedPorts.filter { it !== from && it.worldPos.dst(from.worldPos) > PORT_SAFE_RADIUS * 2.4f }
+            .sortedBy { it.worldPos.dst(from.worldPos) }
+            .take(RAID_NEIGHBOUR_POOL)
+            .let { if (it.isEmpty()) return else GameRandom.pick(it) }
+
+        val centre = Vector2((from.worldPos.x + to.worldPos.x) / 2f, (from.worldPos.y + to.worldPos.y) / 2f)
+        // Capped, because "nearest five" means something very different for an isolated harbour:
+        // a Demerara raid spanned 636 units of open sea, so its three pirates and two warships
+        // could wander for ten minutes and barely meet. A raid has to be a stretch of water, not
+        // a quarter of the map.
+        val radius = (from.worldPos.dst(to.worldPos) / 2f + RAID_RADIUS_MARGIN)
+            .coerceAtMost(RAID_MAX_RADIUS)
+
+        // The midpoint of two ports is not necessarily at sea. Cap-Francais sits on the north
+        // coast of Hispaniola and Santo Domingo on the south, so the point between them is
+        // inland - and a raid sited there is one no ship can ever reach, which is exactly what
+        // happened: the band formed up, was given a destination in the middle of an island, and
+        // stood at anchor for the rest of the session. Take the nearest sailable water instead,
+        // and only if it is still recognisably between the two.
+        val station = worldMap.findNearestWater(centre.x, centre.y)
+        if (station == null || station.dst(centre) > radius) {
+            GameLog.log(GameLog.Category.AI, "raid site ${from.port.name} - ${to.port.name} is inland, skipping")
+            return
+        }
+        centre.set(station)
+        val raid = PirateRaid(
+            portA = from.port.name,
+            portB = to.port.name,
+            centre = centre,
+            radius = radius,
+            secondsRemaining = GameRandom.nextFloat(RAID_MIN_SECONDS, RAID_MAX_SECONDS),
+            responseDelay = GameRandom.nextFloat(RAID_RESPONSE_MIN_SECONDS, RAID_RESPONSE_MAX_SECONDS),
+            rallyPoint = pirateLairAnchor()
+        )
+
+        val recruits = aiShips.filter { it.role == AiShipRole.PIRATE }
+            .sortedBy { it.position.dst(centre) }
+            .take(RAID_PIRATE_COUNT)
+        if (recruits.isEmpty()) {
+            secondsUntilNextRaid = GameRandom.nextFloat(RAID_GAP_MIN_SECONDS, RAID_GAP_MAX_SECONDS)
+            return
+        }
+        // Anchored at the rally point first, not the corridor: they gather before they sail.
+        // Being called up puts a pirate on station for the duration - a raider still nominally
+        // "in transit" would sail into the corridor it was summoned to and decline to touch the
+        // shipping there, which is the one thing a raid exists to do.
+        recruits.forEach {
+            raid.draftIn(it, raid.rallyPoint)
+            it.voyage = PirateVoyage.CRUISING
+            it.cruisingGround = raid.centre.cpy()
+            it.cruiseSecondsLeft = raid.secondsRemaining + raid.responseDelay
+            breakOffChase(it, rest = false)
+        }
+        raid.band.addAll(recruits)
+
+        activeRaid = raid
+        GameLog.log(
+            GameLog.Category.AI,
+            "raid forming ${raid.label}: ${recruits.size} pirates gathering, " +
+                "lasting ${raid.secondsRemaining.toInt()}s once on station"
+        )
+    }
+
+    /**
+     * The navies of the two ports' owners send whichever warships are NEAREST - not a random
+     * pick. Response time then follows from geography on its own: a patrol already in the area
+     * turns up quickly, and a raid far from anyone's home waters gets to run for a while.
+     * Standing with the player is irrelevant here; they are coming for the pirates.
+     */
+    private fun sendNavalResponse(raid: PirateRaid) {
+        raid.markResponseSent()
+        val owners = resolvedPorts.filter { it.port.name == raid.portA || it.port.name == raid.portB }
+            .mapNotNull { it.port.faction }
+            .toSet()
+        // Each power answers on its own account, with its own squadron and its own memory of how
+        // the last one went - they are not a coalition, they merely have neighbouring problems.
+        var anySent = false
+        for (faction in owners) {
+            if (sendSquadron(raid, faction)) anySent = true
+        }
+        if (!anySent) GameLog.log(GameLog.Category.AI, "raid ${raid.label}: no warships available to respond")
+    }
+
+    /**
+     * One power's answer: the nearest warships it has, gathered at its own port closest to the
+     * trouble and sent out together rather than trickling in one at a time.
+     *
+     * Strength comes from [navalEscalation] - a squadron that was beaten is replaced by a larger
+     * one next time. A power that keeps losing ships to the same corridor eventually turns up in
+     * force, which is both what a state would do and a way for the world to answer the player's
+     * question "is anyone doing anything about this?".
+     */
+    private fun sendSquadron(raid: PirateRaid, faction: Faction): Boolean {
+        val strength = navalEscalation.getOrDefault(faction, NAVAL_WAVE_BASE)
+        val available = aiShips.filter {
+            it.role == AiShipRole.MILITARY && it.faction == faction && it !in raid.displacedAnchors
+        }
+        if (available.isEmpty()) return false
+
+        val musterPort = resolvedPorts.filter { it.port.faction == faction }
+            .minByOrNull { it.approachPoint.dst(raid.centre) }
+        val squadron = available.sortedBy { it.position.dst(raid.centre) }.take(strength)
+        // Anchored on the trouble itself. They set out from wherever the nearest of them were -
+        // which is the muster point in practice, since the squadron is chosen by proximity - and
+        // travel in company rather than trickling in one at a time.
+        squadron.forEach { raid.draftIn(it, raid.centre) }
+        musterPort?.let { GameLog.log(GameLog.Category.AI, "raid ${raid.label}: ${faction.displayName} musters at ${it.port.name}") }
+        raid.squadrons.getOrPut(faction) { mutableListOf() }.addAll(squadron)
+
+        GameLog.log(
+            GameLog.Category.AI,
+            "raid ${raid.label}: ${faction.displayName} sent ${squadron.size} warships " +
+                "(wave strength $strength)"
+        )
+        eventToastUI.show(
+            "${faction.displayName} sends ${squadron.size} warships against the pirates near ${raid.label}.",
+            IconFactory.property
+        )
+        return true
+    }
+
+    /** Records how a power's squadron fared, so the next one is sized accordingly. */
+    private fun settleEscalation(raid: PirateRaid) {
+        for ((faction, squadron) in raid.squadrons) {
+            val survivors = squadron.count { it in aiShips }
+            val current = navalEscalation.getOrDefault(faction, NAVAL_WAVE_BASE)
+            navalEscalation[faction] = if (survivors == 0 && squadron.isNotEmpty()) {
+                (current + 1).coerceAtMost(NAVAL_WAVE_MAX)
+            } else {
+                NAVAL_WAVE_BASE
+            }
+            GameLog.log(
+                GameLog.Category.AI,
+                "raid ${raid.label}: ${faction.displayName} lost ${squadron.size - survivors} of " +
+                    "${squadron.size}; next wave ${navalEscalation[faction]}"
+            )
+        }
+    }
+
+    /**
+     * A ship goes down - and it is the same event whether a raid is running or not. If one is,
+     * and this happened inside it, the loss is marked on the water so a player arriving late can
+     * still read what went on there. Everything else is unconditional: the wreck leaves the
+     * world, whoever flew that flag replaces it, and anyone chasing the deceased needs a new
+     * target.
+     */
+    private fun sinkShip(ship: AiShip, victor: String) {
+        val raid = activeRaid
+        val inRaid = raid != null && raid.contains(ship.position)
+        if (inRaid) raid!!.marks.add(SinkMark(ship.position.cpy(), ship.role == AiShipRole.PIRATE))
+        raid?.release(ship)
+        aiShips.remove(ship)
+        for (other in aiShips) if (other.quarry === ship) other.quarry = null
+        respawnReplacement(ship)
+        val where = if (inRaid) " near ${raid!!.label}" else ""
+        // Logged, never announced. NPCs fight each other constantly now, and a toast for every
+        // sinking within sight buries the player under notifications about ships that are none of
+        // their business. What happened on the water is told by the water - the sink marks a raid
+        // leaves - not by a popup.
+        GameLog.log(GameLog.Category.COMBAT, "$victor sank ${ship.displayName}$where")
+    }
+
+    private fun endRaid(raid: PirateRaid) {
+        settleEscalation(raid)
+        // The survivors go home rather than loitering on a corridor nobody is raiding any more -
+        // and going home is also what redistributes them, since each picks a fresh cruising
+        // ground on the next outward leg.
+        for (pirate in raid.band) {
+            if (aiShips.none { it === pirate }) continue
+            pirate.voyage = PirateVoyage.HOMEBOUND
+            pirate.cruisingGround = null
+            pirate.path = emptyList()
+            pirate.pathIndex = 0
+            breakOffChase(pirate, rest = false)
+        }
+        raid.releaseAll()
+        activeRaid = null
+        secondsUntilNextRaid = GameRandom.nextFloat(RAID_GAP_MIN_SECONDS, RAID_GAP_MAX_SECONDS)
+        GameLog.log(GameLog.Category.AI, "raid ended ${raid.label}")
+        eventToastUI.show("Pirate activity near ${raid.label} has subsided.", IconFactory.property)
     }
 
     private fun abandonPursuit(ship: AiShip) {
@@ -1501,6 +2533,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
      * crowding can never shove a ship onto a beach.
      */
     private fun separateAiShips(delta: Float) {
+        val pushX = FloatArray(aiShips.size)
+        val pushY = FloatArray(aiShips.size)
         for (i in aiShips.indices) {
             for (j in i + 1 until aiShips.size) {
                 val a = aiShips[i]
@@ -1509,6 +2543,10 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 var dy = b.position.y - a.position.y
                 val distanceSq = dx * dx + dy * dy
                 if (distanceSq >= SHIP_SEPARATION_RADIUS * SHIP_SEPARATION_RADIUS) continue
+                // An attacker and its target are exempt. Contact range is *inside* the separation
+                // radius, so without this the very rule that stops hulls sharing a pixel would
+                // hold every chase permanently a ship's length short of a fight.
+                if (a.quarry === b || b.quarry === a) continue
 
                 var distance = kotlin.math.sqrt(distanceSq)
                 if (distance < 0.01f) {
@@ -1523,28 +2561,103 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 val push = overlap * SHIP_SEPARATION_STRENGTH * delta
                 val nx = dx / distance * push
                 val ny = dy / distance * push
+                // Gathered rather than applied on the spot: with several neighbours the pushes
+                // used to add up unchecked, and the sum could exceed the ship's own speed.
                 // A ship on its final approach is exempt. Separation keeps ships a full sprite
                 // apart, which is more than twice the distance at which arriving counts - so
                 // without this, two ships heading for the same harbour shove each other out of
                 // arrival range and mill about outside it forever. Crowding is cosmetic;
                 // arriving is not, so arriving wins.
-                if (!isDocking(a)) nudgeIfWater(a, -nx, -ny)
-                if (!isDocking(b)) nudgeIfWater(b, nx, ny)
+                if (!isDocking(a)) { pushX[i] -= nx; pushY[i] -= ny }
+                if (!isDocking(b)) { pushX[j] += nx; pushY[j] += ny }
             }
+        }
+
+        for (index in aiShips.indices) {
+            val ship = aiShips[index]
+            var dx = pushX[index]
+            var dy = pushY[index]
+            if (dx == 0f && dy == 0f) continue
+            // However crowded it is, a ship is never displaced faster than it can sail: crowding
+            // is cosmetic, steering is not.
+            val limit = ship.speed * SEPARATION_SPEED_FRACTION * delta
+            val magnitude = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (magnitude > limit) {
+                dx = dx / magnitude * limit
+                dy = dy / magnitude * limit
+            }
+            nudgeIfWater(ship, dx, dy)
         }
     }
 
-    /** True while a ship is on the last stretch to its current waypoint, where being nudged aside
-     *  would cost it the arrival - see separateAiShips. */
+    /**
+     * True while a ship is on the last stretch to its *destination*, where being nudged aside
+     * would cost it the arrival - see separateAiShips.
+     *
+     * This used to ask about the current waypoint instead, which quietly switched separation off
+     * for nearly the whole map: a route is laid on a 10-unit pathfinding grid, so the next
+     * waypoint is essentially always inside the exemption distance, and almost every moving ship
+     * counted as "docking" every frame. That is why hulls sailed straight through one another.
+     * Only the end of the route earns the exemption.
+     */
     private fun isDocking(ship: AiShip): Boolean {
-        val target = ship.path.getOrNull(ship.pathIndex) ?: return false
-        return target.dst(ship.position) < AI_SHIP_ARRIVE_THRESHOLD * DOCKING_APPROACH_MULTIPLIER
+        val destination = ship.path.lastOrNull() ?: return false
+        return destination.dst(ship.position) < AI_SHIP_ARRIVE_THRESHOLD * DOCKING_APPROACH_MULTIPLIER
     }
 
-    private fun nudgeIfWater(ship: AiShip, dx: Float, dy: Float) {
+    /**
+     * Points the ship a little further towards [dirX], [dirY] and moves it along the heading it
+     * actually has - not the heading it would like to have.
+     *
+     * Every AI ship moves through here, which is the whole point. Heading used to be assigned
+     * outright at four separate call sites, so a course change of any size happened within a
+     * single frame: ships appeared to stop dead, pivot on the spot and set off again, and a line
+     * of ships rounding a headland snapped round one after another. Coming about at the hull's
+     * own rate is what makes a change of course read as sailing.
+     *
+     * Returns false when there is no water ahead, leaving the caller to decide what to do about
+     * it - a turn can carry a ship wide of where it meant to go, and the sea does not owe anyone
+     * the room to finish one.
+     */
+    private fun steer(ship: AiShip, dirX: Float, dirY: Float, delta: Float): Boolean {
+        val desired = MathUtils.atan2(dirY, dirX) * MathUtils.radDeg
+        // A ship carrying rudder loses way, as one does in reality - and because it is slower it
+        // also turns inside a tighter circle, which is what lets it fetch up on a waypoint it
+        // could not have reached at full speed. That is the honest fix; widening what counts as
+        // "arrived" for sluggish hulls was papering over the missing manoeuvre.
+        val pace = ship.speed * Helm.paceThroughTurn(Helm.shortestTurn(ship.headingDeg, desired))
+        ship.headingDeg = Helm.turnToward(ship.headingDeg, desired, ship.turnRate * delta)
+        val hx = MathUtils.cosDeg(ship.headingDeg)
+        val hy = MathUtils.sinDeg(ship.headingDeg)
+        val step = pace * delta
+        if (nudgeIfWater(ship, hx * step, hy * step)) return true
+        // Mid-turn the heading can point at a shore that the straight line to the waypoint
+        // clears. Take the direct step rather than stall against the beach.
+        if (nudgeIfWater(ship, dirX * step, dirY * step)) return true
+
+        // Both blocked, which before gradual turning could not happen: heading used to be
+        // assigned outright, so a ship always pointed wherever it was going. Now a hull whose bow
+        // is towards the shore keeps that bow for a second or two - long enough that, with only
+        // those two attempts, it pinned itself to the beach, asked for a new route every frame,
+        // and never moved again. Half the fleet spent a session parked along coastlines this way.
+        //
+        // So try a fan either side of where it wants to go. Any of these is a legitimate way to
+        // work off a lee shore, and the helm above has already turned the bow this frame, so the
+        // ship is genuinely coming round while it does it.
+        for (offset in SHORE_CLEARANCE_ANGLES) {
+            val heading = Vector2(dirX, dirY).rotateDeg(offset.toFloat())
+            if (nudgeIfWater(ship, heading.x * step, heading.y * step)) return true
+        }
+        return false
+    }
+
+    /** Moves the ship if the destination is sea; reports whether it did. */
+    private fun nudgeIfWater(ship: AiShip, dx: Float, dy: Float): Boolean {
         val x = ship.position.x + dx
         val y = ship.position.y + dy
-        if (worldMap.isWater(x, y)) ship.position.set(x, y)
+        if (!worldMap.isWater(x, y)) return false
+        ship.position.set(x, y)
+        return true
     }
 
     /** An outmatched pirate's panic move: sail directly away from the player, ignoring its
@@ -1558,13 +2671,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         val dist = Vector2(dx, dy).len().coerceAtLeast(0.01f)
         val nx = dx / dist
         val ny = dy / dist
-        val speed = ship.speed * PIRATE_FLEE_SPEED_MULTIPLIER
-        val newX = ship.position.x + nx * speed * delta
-        val newY = ship.position.y + ny * speed * delta
-        if (!worldMap.isWater(newX, newY)) return false
-        ship.position.set(newX, newY)
-        ship.headingDeg = MathUtils.atan2(ny, nx) * MathUtils.radDeg
-        return true
+        // Plain hull speed: a ship cannot sail faster than it sails because it is frightened.
+        return steer(ship, nx, ny, delta)
     }
 
     /** Single-port factions (France, Netherlands) would otherwise have nowhere else to "patrol"
@@ -1581,18 +2689,82 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
      *  - a warship patrols out and back, so its faction's waters are somewhere it visibly stays;
      *  - a pirate sorties from its lair to prowl a port's outskirts, then goes home again.
      */
-    private fun retargetAiShip(ship: AiShip) {
-        val destination = when (ship.role) {
-            AiShipRole.TRADE -> weightedPort(ship)?.approachPoint
-            AiShipRole.MILITARY -> if (ship.outbound) weightedPort(ship)?.approachPoint else ship.anchor
-            AiShipRole.PIRATE -> if (ship.outbound) weightedPort(ship)?.let { prowlPointOutside(it) } else ship.anchor
-        } ?: return
-        if (ship.role != AiShipRole.TRADE) ship.outbound = !ship.outbound
+    /**
+     * Laying a course, subject to a per-frame allowance.
+     *
+     * Pathfinding is far and away the most expensive thing here, and the AI's appetite for it
+     * scales with game speed while the budget to pay for it does not. Returning null when the
+     * allowance is spent simply means "not this frame" - callers leave the ship on its present
+     * course and ask again next time, which costs a few frames of staleness and buys a steady
+     * frame rate at any speed.
+     */
+    private fun routeTo(from: Vector2, to: Vector2): List<Vector2>? {
+        if (routeBudget <= 0) return null
+        routeBudget--
+        return worldMap.findPath(from, to)
+    }
 
-        val newPath = worldMap.findPath(ship.position, destination)
-        if (!newPath.isNullOrEmpty()) {
-            ship.path = newPath
-            ship.pathIndex = 0
+    private fun routeAvoiding(from: Vector2, to: Vector2, avoid: Vector2, radius: Float): List<Vector2>? {
+        if (routeBudget <= 0) return null
+        routeBudget--
+        return worldMap.findPath(from, to, avoid, radius)
+    }
+
+    private fun retargetAiShip(ship: AiShip) {
+        // A ship in the middle of a chase has exactly one destination worth having.
+        ship.quarry?.let { quarry ->
+            routeTo(ship.position, quarry.position.cpy())?.let { route ->
+                ship.path = route
+                ship.pathIndex = 0
+            }
+            return
+        }
+        // A ship taking part in a raid has somewhere it must be, and the ordinary weighting will
+        // not take it there: an outbound pirate picks a port, so one anchored at the rally point
+        // still spent half its time sailing away from it and the band never assembled.
+        raidDestinationFor(ship)?.let { forced ->
+            routeTo(ship.position, forced)?.let { route ->
+                ship.path = route
+                ship.pathIndex = 0
+            }
+            return
+        }
+        // Several attempts, because a destination can legitimately be no good: A* returns an
+        // empty route for a place the ship is already sitting on, and the old code could not tell
+        // that apart from "no route exists" - it left the ship with no route at all, which is a
+        // ship that never moves again. The rescue in findWayOut could not help either, since a
+        // ship parked on its own anchor has nowhere to back away towards. Warships idling at home
+        // and pirates home from a cruise sat down permanently for exactly this reason.
+        repeat(RETARGET_ATTEMPTS) {
+            val destination = when (ship.role) {
+                AiShipRole.TRADE -> weightedPort(ship)?.approachPoint
+                AiShipRole.MILITARY -> if (ship.outbound) weightedPort(ship)?.approachPoint else ship.anchor
+                // A pirate goes where its cruise says, not where the old home-waters weighting
+                // pulled it - that weighting is precisely what kept the whole fleet in one corner.
+                AiShipRole.PIRATE -> when (ship.voyage) {
+                    PirateVoyage.TRANSIT -> ship.cruisingGround ?: pickCruisingGround().also { ship.cruisingGround = it }
+                    PirateVoyage.CRUISING -> prowlNearGround(ship)
+                    PirateVoyage.HOMEBOUND -> pirateBerth()
+                }
+            }
+            if (destination != null && destination.dst(ship.position) > AI_SHIP_ARRIVE_THRESHOLD * 2) {
+                val newPath = routeTo(ship.position, destination)
+                if (newPath.isNullOrEmpty()) {
+                    // That cruising ground cannot be reached from here. Left set, it would be
+                    // drawn again on every attempt for the rest of the session and the pirate
+                    // would sit at its own front door for ever - which is exactly what two of
+                    // them were caught doing. Drop it and pick another.
+                    if (ship.role == AiShipRole.PIRATE && ship.voyage == PirateVoyage.TRANSIT) {
+                        ship.cruisingGround = null
+                    }
+                } else {
+                    ship.path = newPath
+                    ship.pathIndex = 0
+                    // The leg only turns over when a new one actually begins.
+                    if (ship.role == AiShipRole.MILITARY) ship.outbound = !ship.outbound
+                    return
+                }
+            }
         }
     }
 
@@ -2106,6 +3278,13 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         } else {
             pirateLairAnchor()
         } ?: return
+        if (defeated.role == AiShipRole.PIRATE) {
+            // A replacement that always appears at the lair is how the north-west corner filled
+            // up: every pirate lost anywhere on the map came back there and had to sail out
+            // again. The trade goes on wherever it was going on.
+            aiShips.add(pirateOnStation())
+            return
+        }
         val replacement = when (defeated.role) {
             AiShipRole.TRADE -> AiShipFactory.trade(defeated.faction!!, spot.cpy())
             AiShipRole.MILITARY -> AiShipFactory.military(defeated.faction!!, spot.cpy())
@@ -2231,6 +3410,66 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     /** The Sea's name, drawn with the port-label machinery so it holds a constant on-screen size
      *  at any zoom, and larger than a port so it reads as a region rather than a place. */
+    /** The raid's stain on the map, drawn with the same stretched-pixel trick as the Sea of
+     *  Pirates - a square around the circle the raid actually uses, which reads fine as a smear
+     *  of trouble and costs nothing. Sink marks stay until the raid ends, so arriving late still
+     *  shows that something happened here. */
+    private fun buildRadialTexture(size: Int): Texture {
+        val pixmap = Pixmap(size, size, Pixmap.Format.RGBA8888)
+        val centre = size / 2f
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                val dx = x + 0.5f - centre
+                val dy = y + 0.5f - centre
+                val distance = kotlin.math.sqrt(dx * dx + dy * dy) / centre
+                // Full strength out to most of the radius, fading only over the last quarter.
+                // Squaring the falloff, as this did, concentrated everything at the centre and
+                // left the edges invisible - the region read as a smudge rather than an area.
+                val falloff = ((1f - distance) / RADIAL_EDGE_SOFTNESS).coerceIn(0f, 1f)
+                pixmap.setColor(1f, 1f, 1f, falloff)
+                pixmap.drawPixel(x, y)
+            }
+        }
+        val texture = Texture(pixmap)
+        pixmap.dispose()
+        return texture
+    }
+
+    private fun drawRaidRegion() {
+        val raid = activeRaid ?: return
+        batch.color = RAID_REGION_TINT
+        batch.draw(
+            radialTexture,
+            raid.centre.x - raid.radius, raid.centre.y - raid.radius,
+            raid.radius * 2f, raid.radius * 2f
+        )
+        batch.color = Color.WHITE
+        for (mark in raid.marks) {
+            batch.color = if (mark.wasPirate) SINK_MARK_PIRATE else SINK_MARK_NAVY
+            batch.draw(
+                IconFactory.dockedGlow,
+                mark.position.x - SINK_MARK_SIZE / 2f, mark.position.y - SINK_MARK_SIZE / 2f,
+                SINK_MARK_SIZE, SINK_MARK_SIZE
+            )
+        }
+        batch.color = Color.WHITE
+    }
+
+    private fun drawRaidLabel() {
+        val raid = activeRaid ?: return
+        val scale = portLabelWorldHeight() * RAID_LABEL_SCALE / portLabelBaseLineHeight
+        portLabelFont.data.setScale(scale)
+        portLabelFont.color = RAID_LABEL_COLOR
+        val text = "Pirate activity"
+        val layout = GlyphLayout(portLabelFont, text)
+        portLabelFont.draw(
+            batch, text,
+            raid.centre.x - layout.width / 2f,
+            raid.centre.y + raid.radius - layout.height
+        )
+        portLabelFont.color = Color.BLACK
+    }
+
     private fun drawPirateSeaLabel() {
         val origin = PirateSea.fogOrigin
         val scale = portLabelWorldHeight() * PIRATE_SEA_LABEL_SCALE / portLabelBaseLineHeight
@@ -2507,6 +3746,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         shapeRenderer.dispose()
         batch.dispose()
         fogTexture.dispose()
+        radialTexture.dispose()
         portLabelFont.dispose()
         mapTexture.dispose()
         shipTextures.values.forEach { it.dispose() }

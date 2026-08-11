@@ -1,5 +1,88 @@
 # Changelog
 
+## [0.4.5.8] - 2026-08-11
+
+### Added
+- **Standing rules of engagement (M11d/M11e).** Every ship decides for itself whether to attack
+  what it sees. Fighting power is the hull it has left times the damage it deals, and the decision
+  is a roll against the odds that ratio gives rather than a threshold - so a heavy pirate is
+  usually, not always, willing to take on a frigate, and a light one is occasionally reckless.
+  Pirates prey on merchantmen and deal with the navies sent after them; navies hunt pirates
+  wherever they find them; merchantmen run for harbour.
+- This replaces the rule the milestone was planned around - "NPC versus NPC fighting happens only
+  inside an active event". Built that way it gave the map two different physics: a pirate inside
+  the red circle hunted merchantmen, and an identical pirate fifty units outside it sailed politely
+  past them. The population problem that rule existed to prevent is now solved where it actually
+  lives, in the cruise and the chase below.
+- **Pirates sail cruises**: out to a stretch of busy water, work it for four to eight minutes, then
+  home to the lair. Only a pirate on station starts on shipping - one stopping for every sail it
+  passed on the way out never got anywhere, which is why the whole fleet used to brawl outside its
+  own front door while the rest of the map stayed empty.
+- **Regional raids with a naval response.** A band gathers at the lair, sails out in line astern
+  and works a corridor between two ports. Each power musters independently from its own harbour and
+  reinforces after losses. Ships that go down leave a mark on the water until the raid ends.
+- **Damage that lasts.** A hull carries its wear from one fight into the next and heals only in
+  home waters. Fights used to be resolved from full hull every time, which made navies effectively
+  unsinkable and the escalating-wave rule unreachable; a squadron that has been fighting all
+  afternoon is now one pirates start fancying their chances against.
+- **A helm.** Course changes take time, set by the class's manoeuvrability - a statistic that
+  already existed and was only used in combat. A Cutter puts about in four seconds, a Galleon in
+  nine, and every ship loses way while coming round, exactly as one does in reality.
+- **Line astern by wake.** Followers steer along water the leader has actually sailed through
+  rather than along the route it is about to take.
+- **WorldScale**: what a world unit actually is, in kilometres and in ship lengths, so thresholds
+  stop being numbers picked by eye.
+- Diagnostics: a stable identity per hull, and a fleet-size invariant that says so in the log if
+  the seas ever start quietly emptying.
+
+### Changed
+- **Combat begins at 24 units instead of 52** - about eight tenths of a hull length. Merchantmen
+  used to die with a clear gap of open sea between them and the pirate that supposedly boarded
+  them, wider than the mark left on the water where they sank.
+- **One sight range for everyone**, 180 units. There were three, invented per role: hunters saw
+  360, merchantmen 420, and a pirate noticed the player at 140. A lookout sees what there is to
+  see, and not further because of what his ship does for a living. Symmetrical sighting also makes
+  escapes honest - both ships spot each other at once, and speed and handling settle the rest.
+- **Every chase ends**: on a clock, and on the hunter noticing the range has stopped shrinking,
+  which means the ship ahead is simply faster. There was no limit at all before, so a pirate that
+  could not catch a merchantman followed it indefinitely - which is why chases looked like two
+  ships jinking pointlessly back and forth, and why the chase consumed the entire voyage.
+- Chases and flights are laid as routes and refreshed periodically, not steered frame by frame.
+- Hulls are kept a full Galleon length apart, since clearance shorter than the longest ship on the
+  map meant the biggest ships were the ones seen overlapping.
+- Raids carry no combat logic of their own any more; they supply the pirates and the reason a navy
+  sails out, and the standing rules do the rest.
+- No more notification for every NPC sinking. They are logged, not announced.
+
+### Fixed
+- **Pathfinding rewritten without per-cell allocation** - 30 cross-map routes in 15 ms, where the
+  old version allocated a position object, a node and several hash entries for every cell it
+  touched. Invisible while ships wanted a route once every half-minute; once chases, flights and
+  formation-keeping all began re-laying courses every second or two it dropped the whole game to a
+  visible stutter.
+- Course requests are now rationed per drawn frame and the ration comes round to every ship in
+  turn. Every cooldown in the AI is counted in game time while the cost is paid in real seconds, so
+  at 20x speed the world wanted twenty times as many courses per second as at 1x.
+- Raid phases ran on real time while the world ran on game time, so at speed they advanced twenty
+  times slower than the ships around them - the first raid turned up anywhere between three and
+  eight minutes into a session instead of after the minute it is set to.
+- A merchantman could be marked as fleeing before it had anywhere to flee to, and would then spend
+  the whole encounter believing it was already running - sailing its trading route into the pirate.
+- Ships pinned themselves bow-first to shorelines once turning took time, and a ship refused a
+  route was left with none at all, which parked it for the rest of the session.
+- Separation was switched off for essentially every moving ship (the docking exemption tested the
+  next waypoint, and routes are laid on a 10-unit grid), and its drift rate was nearly twice the
+  speed of the slowest hull, so once fixed it shoved crowded ships to a standstill.
+- A raid could be sited inland, between two ports on opposite coasts of the same island; the band
+  gathered, was given a destination in the middle of Hispaniola, and never set out.
+- The pirate lair was a point on the shore; it is now an anchorage four Galleon lengths across in
+  open water under the fog, and pirates spawn and return to berths spread across it.
+- Pirates spawned and respawned at the lair no matter where they died, which filled the map's
+  north-west corner and left the rest untroubled. They now start and reappear on a cruising ground.
+- Screenshots were saved upside down.
+- Sinking a ship inside the movement loop could bring the world down with a
+  ConcurrentModificationException.
+
 ## [0.4.5.7] - 2026-08-10
 
 ### Added

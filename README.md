@@ -3,7 +3,7 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5.7 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.5.8 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
 > ships that actually hunt down a target they've spotted, a small hired fleet of captains who
 > fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
@@ -13,7 +13,7 @@ combat, deliberately kept small in scope for a solo/hobby project.
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5.7
+## What's here in v0.4.5.8
 
 - A world map built from real-world relief map data (the Caribbean basin and surrounding
   coasts), used as the actual playing field rather than an abstract/schematic map, at twice
@@ -83,6 +83,22 @@ franchise's creators or publishers.
   Pirates sortie from it to prowl the outskirts of a harbour, then sail home again. It sits there
   deliberately: a lair on a shipping crossroads is not a source of danger but a permanent blockade
   of the trade that passes through it, and that empty third of the map was doing nothing.
+- **Standing rules of engagement.** Every ship in the world decides for itself whether to attack
+  what it sees, by comparing real fighting power - the hull it has left times the damage it deals -
+  and rolling against the odds that gives. Pirates prey on merchantmen and take on patrols they
+  fancy their chances against; navies hunt pirates wherever they find them; merchantmen run for
+  harbour. None of it depends on an event being active.
+- **Pirates sail cruises**: out to a stretch of busy water, work it for a few minutes, then home to
+  the lair. Only a pirate actually on station starts on shipping, which is what spreads them across
+  the map instead of leaving them brawling outside their own front door.
+- **Regional raids with a naval response.** A band gathers at the lair, sails out in line astern,
+  and works a corridor between two ports. Each power musters its own squadron from its own harbour
+  and reinforces after losses. Ships that go down leave a mark on the water until the raid ends.
+- **Damage lasts.** A hull carries its wear from one fight into the next and only heals in home
+  waters, so a squadron that has been fighting all afternoon is one pirates start fancying their
+  chances against - and a warship can genuinely be sunk.
+- **Ships answer their helm.** A course change takes time set by the class's manoeuvrability, and a
+  ship loses way while coming round: a Cutter puts about in four seconds, a Galleon in nine.
 - Pirates roll a random tier (1-5, hull size/speed and reward scaled to match) and flee rather than
   engage a ship clearly stronger than them, and vice versa - every AI ship's sailing speed comes
   from the same ship-type table the player and hired captains use, not a separate hand-picked
@@ -295,13 +311,19 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       a fence. Warships patrol out and back; pirates sortie from the Sea of Pirates and return to
       it. The lair sits in the empty northern Gulf on purpose - a nest on a shipping crossroads is
       a permanent blockade of that trade, not a source of danger *(this release)*
-- [ ] **M11d** - regional events and a military response: "pirate activity reported between Port
-      Royal and Cartagena" puts a small band of pirates into a corridor; the faction's warships
-      break off patrol and converge; encounters resolve instantly with the same combat maths, the
-      loser sinks visibly, survivors run for their lair, and the event fades with a notice. NPC
-      versus NPC fighting happens only inside an active event - navies and pirates are always
-      hostile, and letting them fight everywhere would grind the pirate population down and make
-      events meaningless
+- [x] **M11d** - regional events and a military response: a band of pirates gathers, sails out in
+      line astern and works a corridor between two ports; each power musters its own squadron from
+      its own harbour, reinforces after losses, and fights it out with the same combat maths the
+      player's own battles use, so warships die too. Losses leave a mark on the water *(this
+      release)*
+- [x] **M11e** - the rules of engagement, and the reversal that came with them. This milestone was
+      planned around "NPC versus NPC fighting happens only inside an active event", on the
+      reasoning that fighting everywhere would grind the pirate population down. Built that way it
+      gave the map two different physics: a pirate inside the red circle hunted merchantmen and an
+      identical pirate fifty units outside it sailed politely past them. The rule was replaced with
+      role-based engagement everywhere, all the time, and the population problem was solved where
+      it actually lived - a pirate only starts on shipping while on station, and every chase has an
+      end. Events concentrate trouble; they no longer own it *(this release)*
 - [ ] **M11b** - route safety: a simple track record per port pair ("N safe trips, M threat
       encounters"), shown when assigning a captain's route - deliberately not a numeric
       "danger score", to stay consistent with not handing the player a full picture upfront.

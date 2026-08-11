@@ -10,6 +10,21 @@ import com.portroyale.tiny.ships.ShipTypes
 
 enum class AiShipRole { TRADE, MILITARY, PIRATE }
 
+/**
+ * Where a pirate is in its cruise, which is what decides whether it starts fights.
+ *
+ * A pirate that is always willing to attack never finishes a voyage: it leaves the lair, finds
+ * prey within sight, chases, fights, reloads, finds more prey - and so spends its whole life in
+ * the water it was born in. The map beyond stays untouched while the shipping near the lair is
+ * cut to pieces. Splitting the cruise into legs fixes that at the root: only the middle leg
+ * hunts, so the outward and homeward legs are what actually spread pirates across the Caribbean.
+ *
+ * Note this governs *starting* a fight with merchantmen only. Navies and pirates react to each
+ * other on any leg, and a merchantman treats any pirate as a danger whatever it happens to be
+ * doing - a pirate that shipping sails calmly past would look absurd.
+ */
+enum class PirateVoyage { TRANSIT, CRUISING, HOMEBOUND }
+
 /** A roaming, non-player ship: trade/military ships belong to a Faction and sail between that
  *  faction's ports; pirates belong to no one and wander between any port. Stats are a flat
  *  per-role template (see [AiShipFactory]), not randomized - a rough first pass, tune later.
@@ -27,8 +42,92 @@ class AiShip(
     val maxDamage: Int,
     val goldReward: Int,
     val tier: Int,
-    val position: Vector2
+    val position: Vector2,
+    /** How smartly this hull answers her helm - the same statistic the ship classes carry and
+     *  combat already uses. Defaulted so the many tests that build ships by hand need not care. */
+    val maneuverability: Int = 50
 ) {
+    /**
+     * Damage this hull is carrying. Fights used to be resolved from [maxHull] every time, so a
+     * warship that had just been through three battles met the fourth as good as new - which made
+     * navies effectively unsinkable and the escalating-waves rule unreachable. Wear persists here
+     * instead, and a ship that has been in the thick of it is genuinely easier to finish.
+     */
+    /**
+     * A name that stays with this hull for as long as it is afloat.
+     *
+     * Diagnostics used to identify a ship by its index in the fleet list, which shifts every time
+     * anything sinks or respawns - so the watchdog's "report each problem once" rule silently
+     * broke down, one stuck ship was reported under a dozen different names, and forty honest
+     * lines became fourteen hundred. Identity has to outlive the list holding it.
+     */
+    val id: Int = nextId++
+
+    var currentHull: Int = maxHull
+
+    /** Fractional hull points carried between frames, so a slow repair rate is not rounded to
+     *  nothing every tick. */
+    var repairProgress: Float = 0f
+
+    /**
+     * The ship this one has decided to run down, if any. Held rather than recomputed each frame
+     * for the same reason pursuit of the player is: a hunter that re-picks its target every tick
+     * loses it the moment the target juks sideways, which reads as obliviousness rather than
+     * as a chase. Cleared on contact, on losing sight, or on either party reaching harbour.
+     */
+    var quarry: AiShip? = null
+
+    /** How long the current chase has been running. Every chase has an end - see
+     *  Encounters.CHASE_MAX_SECONDS. */
+    var chaseSeconds: Float = 0f
+
+    /** The closest this hunter has managed to get during the current chase, and how long it has
+     *  been failing to beat that. Together they are how a ship works out that it is simply not
+     *  going to catch this one: if the range stops shrinking, the prey is faster, and no amount
+     *  of persistence changes that. */
+    var chaseBestRange: Float = Float.MAX_VALUE
+    var chaseStalledFor: Float = 0f
+
+    /** Time until this ship re-lays its course onto its quarry's current position. A chase is a
+     *  route like any other, refreshed periodically - not per-frame steering. */
+    var repathCooldown: Float = 0f
+
+    /** Time to wait before asking for a route again after being refused one. Without it a ship
+     *  that cannot be routed anywhere asks several times a frame, for ever - and thirty such
+     *  ships between them once brought the whole game to a visible crawl. */
+    var retargetCooldown: Float = 0f
+
+    /** The hunter this ship has committed to running from, and how long it goes on believing in
+     *  the escape after that hunter loses interest. Choosing a refuge once and sticking to it is
+     *  the whole point: re-deciding every frame is what had merchantmen visibly jinking back and
+     *  forth instead of running. */
+    var fleeingFrom: AiShip? = null
+    var fleeCommitment: Float = 0f
+
+    /** Which leg of its cruise a pirate is on, and where it is going to work. Traders and
+     *  warships ignore both. */
+    var voyage: PirateVoyage = PirateVoyage.TRANSIT
+    var cruisingGround: Vector2? = null
+    var cruiseSecondsLeft: Float = 0f
+
+    /** Seconds until this ship next looks around for something worth attacking. The sizing-up is
+     *  a roll, so re-rolling it sixty times a second would make every sighting a certainty. */
+    var huntCheckCooldown: Float = 0f
+
+    /** Degrees per second this hull can come round - see Helm. */
+    val turnRate: Float get() = Helm.turnRate(maneuverability)
+
+    /**
+     * Where this ship has actually been, sampled every so often, for anyone following it.
+     *
+     * A ship in line astern used to be handed the *leader's current route* and told to join it
+     * partway along. That route starts from where the leader is now, so the moment the leader
+     * rounded a headland the follower was aimed at a waypoint on the far side of the land - and
+     * sailed straight into the beach. Following the water the leader has demonstrably already
+     * sailed through cannot have that problem.
+     */
+    val wake: MutableList<Vector2> = mutableListOf()
+
     var headingDeg: Float = 0f
     var path: List<Vector2> = emptyList()
     var pathIndex: Int = 0
@@ -48,6 +147,16 @@ class AiShip(
      * again. Traders ignore it - they genuinely do go port to port for a living.
      */
     var outbound: Boolean = true
+
+    /** Seconds before this ship will take another merchantman. Without it a band on station
+     *  falls on the same trader three at once and empties a corridor in seconds, which reads as a
+     *  bug rather than as a raid. */
+    var attackCooldown: Float = 0f
+
+    /** The pirate this ship has already re-routed around, so a lookout does not re-plan the same
+     *  evasion every few seconds. Cleared once the sea is empty again. */
+    var avoidedThreat: AiShip? = null
+    var threatCheckCooldown: Float = 0f
 
     /** World-seconds (see PortRoyaleGame.updateAiShips - already scaled by GameSpeed, same as
      *  SeaEventSlot.respawnTimer) until this ship will attempt to engage its last failed target
@@ -78,6 +187,11 @@ class AiShip(
             AiShipRole.TRADE -> "${faction?.displayName} Trader"
             AiShipRole.MILITARY -> "${faction?.displayName} Warship"
         }
+
+    private companion object {
+        /** Monotonic, never reused within a session - see [id]. */
+        var nextId: Int = 1
+    }
 }
 
 /** Stat templates per role. Trade ships are weak and worth a modest reward (easy prey, the
@@ -131,7 +245,8 @@ object AiShipFactory {
         maxDamage = 8,
         goldReward = 120,
         tier = TRADE_TIER,
-        position = position
+        position = position,
+        maneuverability = ShipTypes.ALL[TRADE_TIER - 1].baseManeuverability
     )
 
     fun military(faction: Faction, position: Vector2) = AiShip(
@@ -145,7 +260,8 @@ object AiShipFactory {
         maxDamage = 30,
         goldReward = 250,
         tier = MILITARY_TIER,
-        position = position
+        position = position,
+        maneuverability = ShipTypes.ALL[MILITARY_TIER - 1].baseManeuverability
     )
 
     fun pirate(position: Vector2): AiShip {
@@ -161,7 +277,8 @@ object AiShipFactory {
             maxDamage = 6 + tier * 7,
             goldReward = 40 + tier * 45,
             tier = tier,
-            position = position
+            position = position,
+            maneuverability = ShipTypes.ALL[tier - 1].baseManeuverability
         )
     }
 }
