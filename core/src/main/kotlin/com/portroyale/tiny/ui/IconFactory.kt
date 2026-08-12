@@ -20,7 +20,9 @@ object IconFactory {
     val shipyard: Texture by lazy { buildArtIcon("sprites/icons/shipyard.png") }
     val fortress: Texture by lazy { buildArtIcon("sprites/icons/fortress.png") }
     val tavern: Texture by lazy { buildArtIcon("sprites/icons/tavern.png") }
-    val port: Texture by lazy { buildPortIcon() }
+    /** A painted colonial town rather than the drawn-in-code stone tower below. Kept as art
+     *  because a whole harbour town reads at a glance where an abstract marker does not. */
+    val port: Texture by lazy { buildArtIcon("sprites/icons/port_town.png") }
     /** Drawn behind a good icon on the map to flag it as notably cheap (surplus) or notably
      *  expensive (shortage) at that port - see MarketState.notableGoods. */
     val surplusFrame: Texture by lazy { buildFrameIcon(Color.valueOf("3E8E41")) }
@@ -118,6 +120,9 @@ object IconFactory {
     /** Map marker for a port: one bold watchtower silhouette (not the 3-turret Fortress icon -
      *  distinguishable at a glance, same "stone castle" language) with simple two-tone shading
      *  for volume. Drawn big and simple on purpose, since this renders tiny on the world map. */
+    /** The original hand-coded marker. Superseded by the painted town above; kept for the
+     *  moment so the two can be compared without digging through history. */
+    @Suppress("unused")
     private fun buildPortIcon(): Texture {
         val pm = blank()
         val stoneDark = Color.valueOf("6E695F")

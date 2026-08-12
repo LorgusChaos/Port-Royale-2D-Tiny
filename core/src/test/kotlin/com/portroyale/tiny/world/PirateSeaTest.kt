@@ -27,7 +27,7 @@ class PirateSeaTest {
     @BeforeTest
     fun loadRealMap() {
         GdxNativesLoader.load()
-        val bytes = File("../assets/maps/caribbean_relief.png").readBytes()
+        val bytes = File("../assets/maps/caribbean_mask.png").readBytes()
         val pixmap = Pixmap(bytes, 0, bytes.size)
         worldMap = WorldMap(pixmap, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT, 10f)
         pixmap.dispose()

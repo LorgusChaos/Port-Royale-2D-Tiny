@@ -127,7 +127,11 @@ private const val SHIP_HUNT_CLICK_RADIUS = 3f
 private const val FLEET_SHIP_CLICK_RADIUS = 8f
 private const val FLEET_SHIP_SPRITE_SCALE = 0.8f
 private const val BASE_SHIP_SPRITE_WIDTH = 13f
-private const val PORT_ICON_SIZE = 26f
+/** How wide a harbour town is drawn on the map, in world units. Wider than the old marker's 26:
+ *  a painted town needs the room to be recognisable, where a stone tower silhouette did not. */
+private const val PORT_ICON_WIDTH = 44f
+/** The town illustration's own proportions - drawing it square would squash it. */
+private const val PORT_ICON_HEIGHT = PORT_ICON_WIDTH / 1.43f
 /** Where hulls touch and shooting starts - see Encounters.CONTACT_RADIUS for why this is now
  *  under a ship length rather than the two it used to be. */
 private val AI_SHIP_ENGAGE_RADIUS = Encounters.CONTACT_RADIUS
@@ -506,8 +510,14 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         portLabelFont.color = Color.BLACK
         portLabelBaseLineHeight = portLabelFont.data.lineHeight
 
-        val mapPixmap = Pixmap(Gdx.files.internal("maps/caribbean_relief.png"))
-        mapTexture = Texture(mapPixmap)
+        val mapPixmap = Pixmap(Gdx.files.internal("maps/caribbean.jpg"))
+        // Mipmapped and linearly filtered. libGDX defaults every texture to Nearest on both
+        // axes, which is why the map broke into hard squares the moment anyone zoomed in - the
+        // pixels were being magnified as pixels rather than blended. Linear magnification softens
+        // that at no cost, and the mipmaps kill the shimmer at the other end, where a four-
+        // thousand-pixel map is squeezed onto a minimap two hundred wide.
+        mapTexture = Texture(mapPixmap, true)
+        mapTexture.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear)
         shipTextures = (ShipTypes.ALL.map { it.spritePath } + AiShipFactory.ALL_SPRITES).distinct()
             .associateWith { Texture(Gdx.files.internal(it)) }
 
@@ -519,7 +529,11 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         minimapCamera.setToOrtho(false, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT)
         minimapCamera.update()
 
-        worldMap = WorldMap(mapPixmap, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT, 10f)
+        // Not the picture the player sees - a mask of its own. The artwork is free to be painted
+        // however it likes; where a hull may go is a separate, verified file. See WorldMap.
+        val maskPixmap = Pixmap(Gdx.files.internal("maps/caribbean_mask.png"))
+        worldMap = WorldMap(maskPixmap, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT, 10f)
+        maskPixmap.dispose()
         mapPixmap.dispose()
 
         resolvedPorts = Ports.ALL.map { port ->
@@ -2747,7 +2761,15 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                     PirateVoyage.HOMEBOUND -> pirateBerth()
                 }
             }
-            if (destination != null && destination.dst(ship.position) > AI_SHIP_ARRIVE_THRESHOLD * 2) {
+            if (destination == null || destination.dst(ship.position) <= AI_SHIP_ARRIVE_THRESHOLD * 2) {
+                // Nowhere to go because it is already there. For a warship that means the leg is
+                // over: homeward has reached home, so the next one is outward. Turning the leg
+                // over only on a successful course - which is what this used to do - left a
+                // warship that had just moored asking for a route to the spot it was moored on,
+                // getting none, and lying there for the rest of the session while the watchdog
+                // stayed silent because ships in harbour are not reported.
+                if (ship.role == AiShipRole.MILITARY) ship.outbound = !ship.outbound
+            } else {
                 val newPath = routeTo(ship.position, destination)
                 if (newPath.isNullOrEmpty()) {
                     // That cruising ground cannot be reached from here. Left set, it would be
@@ -2760,7 +2782,6 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 } else {
                     ship.path = newPath
                     ship.pathIndex = 0
-                    // The leg only turns over when a new one actually begins.
                     if (ship.role == AiShipRole.MILITARY) ship.outbound = !ship.outbound
                     return
                 }
@@ -3306,10 +3327,13 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     private fun drawPorts() {
         for (resolved in resolvedPorts) {
+            // Seated rather than centred: the buildings rise from the harbour, so only a
+            // quarter of the town hangs below the port's own point and the rest stands above it.
             batch.draw(
                 IconFactory.port,
-                resolved.worldPos.x - PORT_ICON_SIZE / 2f, resolved.worldPos.y - PORT_ICON_SIZE / 2f,
-                PORT_ICON_SIZE, PORT_ICON_SIZE
+                resolved.worldPos.x - PORT_ICON_WIDTH / 2f,
+                resolved.worldPos.y - PORT_ICON_HEIGHT * 0.25f,
+                PORT_ICON_WIDTH, PORT_ICON_HEIGHT
             )
         }
     }

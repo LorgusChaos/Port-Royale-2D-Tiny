@@ -33,7 +33,7 @@ class PortReachabilityTest {
         GdxNativesLoader.load()
         // Read as bytes rather than through Gdx.files: that needs a live backend, and Pixmap can
         // decode an encoded PNG straight from memory.
-        val file = File("../assets/maps/caribbean_relief.png")
+        val file = File("../assets/maps/caribbean_mask.png")
         assertTrue(file.exists(), "map asset not found at ${file.absolutePath}")
         val bytes = file.readBytes()
         val pixmap = Pixmap(bytes, 0, bytes.size)

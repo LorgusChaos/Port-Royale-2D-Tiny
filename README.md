@@ -3,7 +3,7 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5.8 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.5.9 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
 > ships that actually hunt down a target they've spotted, a small hired fleet of captains who
 > fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
@@ -13,11 +13,14 @@ combat, deliberately kept small in scope for a solo/hobby project.
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5.8
+## What's here in v0.4.5.9
 
-- A world map built from real-world relief map data (the Caribbean basin and surrounding
-  coasts), used as the actual playing field rather than an abstract/schematic map, at twice
-  the scale of earlier releases so a voyage between ports takes real time.
+- A hand-painted map of the Caribbean - jungle, mountain ridges, sandy shores and a turquoise
+  shallow-water band along every coast - drawn over the real geography rather than an
+  abstract/schematic map, at a scale where a voyage between ports takes real time.
+- **The picture and the rules are two different files.** What a ship may sail on comes from a
+  land/sea mask, not from the colours of the artwork, so the map can be painted however it likes
+  and the sea stays exactly where it is meant to be.
 - Water/land collision sampled directly from the map image's own pixels, so the sailable area
   always matches what's drawn - no separately maintained coastline data to drift out of sync.
 - Manual sailing (WASD/arrows), blocked by coastlines, plus click-to-set-course autopilot (A*

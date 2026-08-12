@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 
 /**
  * Pathfinding runs on a grid sampled from the map image's own pixels, so these tests build tiny
- * synthetic Pixmaps (blue = water, green = land, per WorldMap's blue >= green rule) instead of
+ * synthetic Pixmaps (white = water, black = land, matching the mask WorldMap now reads) instead of
  * loading the real 2000x1344 relief map - a 20x20 world makes each expected route obvious by hand.
  *
  * Pixmap is backed by libGDX's native gdx2d code; GdxNativesLoader.load() pulls that in without a
@@ -34,9 +34,9 @@ class WorldMapTest {
     private fun map(vararg land: Pair<Int, Int>): WorldMap {
         val cells = (worldSize / cellSize).toInt()
         val pixmap = Pixmap(cells, cells, Pixmap.Format.RGBA8888)
-        pixmap.setColor(0f, 0f, 1f, 1f) // blue: water
+        pixmap.setColor(1f, 1f, 1f, 1f) // white: water
         pixmap.fill()
-        pixmap.setColor(0f, 1f, 0f, 1f) // green: land
+        pixmap.setColor(0f, 0f, 0f, 1f) // black: land
         for ((gx, gy) in land) {
             pixmap.drawPixel(gx, cells - 1 - gy)
         }

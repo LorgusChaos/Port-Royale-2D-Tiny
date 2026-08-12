@@ -55,3 +55,6 @@ desktop.ini
 *.bak
 *.tmp
 *.orig
+
+# --- Throwaway map style samples (M16 exploration, not assets) ---
+map-style-preview/

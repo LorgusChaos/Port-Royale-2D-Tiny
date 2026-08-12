@@ -6,12 +6,21 @@ import com.badlogic.gdx.math.Vector2
 data class GridPos(val gx: Int, val gy: Int)
 
 /**
- * Water/land is sampled directly from the map image's own pixels (blue channel >= green
- * channel reads as water for this relief map's palette), so collision can never drift out of
- * sync with what's actually drawn - no hand-authored coastline polygons to maintain. World units
- * don't have to equal image pixels 1:1 (e.g. MapProjection's world size can be a multiple of the
- * source image's actual resolution, to make distances feel bigger without re-sourcing art) -
- * pixelScaleX/Y convert a world coordinate to the right source pixel either way.
+ * Where a ship may sail, read from a dedicated **mask** - white is sea, anything else is land.
+ *
+ * This used to be sampled from the artwork itself, on the rule "blue channel at least as large as
+ * green". The rule worked for a relief map, and it quietly cost a great deal: rivers on that map
+ * are drawn in blue, so the game held the Mississippi and the Orinoco to be open sea and would
+ * send ships a hundred miles up them. Sampling the picture also inherited every speck of the
+ * artist's texture as a reef, and left 277 pockets of water with no way out - places a ship could
+ * be put and could never leave.
+ *
+ * Separating the two fixes that at the root and frees the artwork besides: the painted map can be
+ * anything at all, because nothing in the game asks it where the water is. The mask is generated
+ * once, verified (every port reachable, no landlocked pockets) and shipped alongside.
+ *
+ * World units need not equal mask pixels 1:1 - pixelScaleX/Y convert a world coordinate to the
+ * right sample either way.
  */
 class WorldMap(
     pixmap: Pixmap,
@@ -48,10 +57,12 @@ class WorldMap(
         }
     }
 
+    /** White is sea. Deliberately not a heuristic over an artist's palette - see the class note. */
     private fun isWaterColor(rgba8888: Int): Boolean {
+        val r = (rgba8888 ushr 24) and 0xFF
         val g = (rgba8888 ushr 16) and 0xFF
         val b = (rgba8888 ushr 8) and 0xFF
-        return b >= g
+        return r + g + b > 382   // brighter than mid grey
     }
 
     fun isWater(x: Float, y: Float): Boolean {

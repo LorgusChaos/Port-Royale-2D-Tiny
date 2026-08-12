@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.4.5.9] - 2026-08-12
+
+### Added
+- **A new hand-painted map**, and the split that made it safe to have one: the artwork the player
+  looks at and the land/sea mask the game sails on are now two separate files. The picture can be
+  painted in any style at all, because nothing in the game asks it where the water is.
+- Harbour towns are drawn as painted colonial towns rather than a marker built in code. This one
+  is a placeholder - being isometric on a map drawn from directly above, it reads as stuck on,
+  and M16 records the plan to have the towns painted together with the map so their projection
+  and palette agree by construction.
+
+### Changed
+- Water and land are read from a dedicated mask - white is sea - instead of being guessed from
+  the artwork with the rule "blue channel at least as large as green".
+- The map texture is mipmapped and linearly filtered. libGDX defaults every texture to Nearest,
+  so the map had been breaking into hard squares the moment anyone zoomed in: the pixels were
+  being magnified as pixels rather than blended. This is also why the minimap shimmered.
+- Harbour icons are larger (44 world units) and drawn to their own proportions rather than
+  squeezed into a square, and seated on the coast rather than centred on it.
+
+### Fixed
+- **Rivers were open sea.** On the old relief map rivers are drawn in blue, and blue was exactly
+  what the game read as water - so the Mississippi and the Orinoco were navigable, hundreds of
+  miles inland. 9,498 pixels of river connected to the ocean.
+- **277 pockets of water with no way out** - places a ship could be put and could never leave,
+  which is the whole class of bug the "work loose" rescue code had been papering over. The new
+  mask is the single connected ocean and nothing else, so a trap cannot exist by construction.
+- **12,046 pixels of land slivers** acting as invisible reefs in open water.
+- Every one of the 28 harbours verified to have both sea and land at hand; Providencia, five
+  pixels across and dwarfed by its own town icon, given a larger island with the town seated on
+  its shore.
+- **A warship that reached its home anchor could never leave again.** Homeward, its destination is
+  that anchor; having arrived, the destination was rejected as somewhere it already was, and the
+  leg only turned over on a successfully laid course - so it never turned over. The rescue code
+  then nudged the hull a step off its anchor and a step back, for ever. The watchdog stayed silent
+  throughout, because ships in harbour are deliberately not reported.
+
 ## [0.4.5.8] - 2026-08-11
 
 ### Added
