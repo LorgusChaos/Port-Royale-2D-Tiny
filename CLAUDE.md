@@ -21,6 +21,14 @@ If a `NoClassDefFoundError` for a class that clearly exists shows up right after
 files, it's a stale Gradle daemon cache, not a real bug — `./gradlew.bat clean` before rebuilding
 fixes it. Don't waste time debugging the "missing" class itself.
 
+**The other cause of the same error: compiling while the game is running.** `:lwjgl3:run` loads
+classes lazily from `core/build/classes`, so recompiling under a live JVM replaces that directory
+underneath it and the next not-yet-loaded class fails to resolve — typically a `…UIKt` file class
+holding a screen's top-level constants, and typically at the moment the player first opens that
+screen. It looks exactly like a broken build and isn't one. **Don't run a compile or test task
+while a play session is open**; wait for the window to close. (Cost of learning this the hard way:
+one crash report and a lost session.)
+
 ## Before starting a roadmap milestone
 
 Never start coding an M-numbered milestone from design prose alone — first produce the decision
@@ -38,7 +46,7 @@ splits them so review attention goes where it's expensive.
 
 ## Testing discipline
 
-0. **Run `:core:test` after every change, without being asked.** ~287 JUnit 5 tests live in
+0. **Run `:core:test` after every change, without being asked.** ~458 JUnit 5 tests live in
    `core/src/test/kotlin`, mirroring the main package layout. They cover the pure logic only —
    economy (Market/MarketState/Player/Warehouse/Loan), ships (condition, upgrades, effective
    stats), combat (CombatState, FleetCombatResolver), fleet (Captain, FleetSimulation), world
@@ -81,6 +89,29 @@ splits them so review attention goes where it's expensive.
 in a `@BeforeTest` is enough, hence `gdx-platform:natives-desktop` as a `testRuntimeOnly` dep.
 `PortReachabilityTest` loads the *real* map PNG this way (plain `File.readBytes()` →
 `Pixmap(bytes, …)`, since `Gdx.files` needs a backend).
+
+### Sailing the real map in a test — do this instead of reasoning about movement
+
+`Pilot` (`core/.../world/Pilot.kt`) holds the one piece of seamanship every hull shares: follow a
+route, don't run aground. It needs nothing of a ship but `position`/`headingDeg`/`speed`/
+`turnRate`/`path`/`pathIndex` (the `Pilot.Hull` interface — `AiShip` satisfies it as it stands),
+and takes `isWater` as a lambda. So `PilotTest` sails real hulls across the real Caribbean with
+no window, at several tick lengths, and asserts they arrive.
+
+**Movement bugs are geometry, and guessing at them from a session log wastes hours.** Three real
+faults were found this way, each invisible to the old constant-vs-constant tests:
+
+- the arrival radius (16) was *smaller than every hull's turning circle* (21–27), so a waypoint
+  off the bow could not be reached at all and ships orbited it at full speed — displacing nothing,
+  which is what the watchdog was reporting;
+- movement tested only the far end of a step, so a hull slipped diagonally between two corners of
+  land — the one move A* explicitly refuses to plan;
+- a tick is not a fixed length (real frame time × game speed), so at 10 fps on 20x a passage took
+  1.8× longer than at 60 fps. `Pilot` therefore sails a tick in slices of at most half a cell and
+  re-checks the waypoint each slice, which makes a long tick equal several short ones.
+
+Write the failing voyage first. If a movement test passes before the fix, the diagnosis is wrong —
+that happened here, and it stopped a plausible-but-wrong fix from shipping.
 
 ## Diagnostics — use these before reading code to guess
 

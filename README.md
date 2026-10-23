@@ -27,6 +27,11 @@ franchise's creators or publishers.
   pathfinding around islands) - any manual input immediately cancels autopilot and hands control
   back. Clicking an invalid (land) destination shows a brief marker instead of silently doing
   nothing.
+- **Courses are sailed as courses.** A route keeps a berth off the shore where the sea allows one
+  and is laid as a handful of long legs rather than a point every few yards, because a ship turns
+  inside a circle wider than that and cannot follow such a line at all - it would overshoot each
+  mark in turn and crawl. A passage now takes within a few per cent of what the hull's own speed
+  says it should, at any frame rate and any game speed.
 - Mouse-wheel zoom, edge-of-screen panning and right-click-drag panning while sailing (both
   clamped to the map bounds), and a minimap showing the current view.
 - Twenty-eight labeled ports, each belonging to its real 17th/18th-century colonial owner - Spain,
@@ -115,9 +120,12 @@ franchise's creators or publishers.
   centered notification; sailing and AI ships pause while one is open.
 - Turn-based combat with animated ship sprites: cannonballs fly between ships, hits flash, shots
   can miss, maneuverability affects flee odds and evasion. Victory shows a dismissible reward
-  notification (same style as sea events); defeat strips the player's cargo and gold and leaves
-  them with a "Wreck" - the smallest, unarmed, slowest hull in the game, just enough to reach a
-  port and immune to further NPC attacks - instead of a dead end.
+  notification (same style as sea events). Defeat is total and deliberately survivable: the
+  victors take the ship, the cargo and every coin aboard and sail away, leaving the player adrift
+  in the **ship's boat** - no hold, no guns, the slowest thing afloat, and never attacked by
+  anyone, because sinking a man already in his boat is a dead end rather than danger. Make
+  harbour, and buy a hull again. Warehouses and the rest of the fleet are untouched, so a
+  merchant's standing capital survives what his own deck does not.
 - An in-game clock, shown as a calendar date in the HUD alongside your gold balance, running 10x
   faster than real time by default - denominates loan terms and fleet voyage times. A HUD control
   (clock icon) cycles a 1x-20x speed multiplier over the whole simulated world (ship movement,
@@ -270,7 +278,10 @@ Rough milestone plan, Windows first, with a runnable build checked at the end of
       with the city name and gold/cargo centered in its nameplate, each destination's name
       overlaid on its own icon's board instead of a separate label, and a close (X) control
       replacing the old "Set Sail" text button *(this release)*
-- [ ] **M8b** - Android/macOS builds
+- **M8b** - Android/macOS builds - *moved to post-release* (decided 2026-10-22). Shipping on
+      other platforms before the main project is released buys nothing. The *ability* to do it
+      must not be lost, though: platform-specific code stays out of `core`, which is what the
+      module split is for.
 
 M9 onward follow a design pass recorded under [`Project design/`](Project%20design/) - the
 "why", not just the "what" (design pillars, progression ceilings, the fleet/threat/warehouse/
@@ -294,10 +305,17 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       player's own encounters and a fleet captain's (done as part of M10a) - what's left is
       *persistence*, how doggedly a hostile ship keeps pursuing after a failed attempt, rather
       than every encounter being a fresh, memory-less check
-- [ ] **M10c** - crew/boarding combat rework: headcount, losses during a fight, boarding,
-      alternative ammunition types - *priority under review*; combat is meant to stay a
-      support system rather than a deep one of its own, so this waits until M10a/M10b show
-      whether combat actually feels shallow in practice
+- [ ] **M10c** - **the next stage** (re-scoped and promoted ahead of M9/M16, 2026-10-22):
+      ship balance by class, and the combat depth that gives the classes something to differ
+      about - **boarding**, and with it a **crew** that has a headcount and takes losses, and
+      **guns as a countable thing**. The last one is the point: a hull's tonnage has to be
+      *spent*, on a capacious hold or on being armed to the teeth, so choosing a ship becomes a
+      trade-off rather than a ladder. This stage decides what buttons and readouts combat and the
+      shipyard need, which is exactly why **M9 and M16 come after it** - restyling a screen before
+      its mechanics have stopped moving means styling it twice.
+      **Alternative ammunition types are cut from this stage** and moved to post-release: making
+      shell types matter needs more combat depth than the game should carry yet, and the work to
+      get there is out of proportion to what it adds.
 - [x] **M11** - a hostile ship that spots a target now actually pursues it instead of engaging
       only on chance proximity; catching up is an attack with no warning, a passive encounter
       instead offers a real "Fight / Sail On" choice; fleet captains proactively dodge trouble
@@ -356,7 +374,30 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       city-hub sub-screen) restyled to the same standard as the port hub redesign (M8c) -
       deliberately last, once mechanics are settled and every button/icon a mechanic needs
       already exists, so nothing gets restyled twice (replaces the earlier, narrower M13, which
-      only covered the city-hub sub-screens)
+      only covered the city-hub sub-screens). M9's remaining content is the same work seen from
+      the other side - its sub-screens are all functionally present, what is left of it is style -
+      so both wait on M10c.
+
+### Agreed, not yet scheduled
+
+Decided in discussion and parked here so it does not live only in a conversation. Not a priority
+order.
+
+- **Sea events, reworked.** The thirty one-time encounters are thin and rough, and are meant to
+  carry a real share of "the world is doing something" - a direction confirmed, with the shape of
+  it still open.
+- **A fight between two other ships, seen from the deck.** Close enough to watch two hulls at it,
+  one of them breaking off damaged - and, later, perhaps a hand in it. Not a notification system:
+  the player has no business being told about every sinking in the Caribbean. Note the real cost
+  first - NPC against NPC is currently resolved in an instant, so this means giving those fights
+  duration on the map before anything can be watched.
+- **A pause before a lost ship is replaced.** A power losing a frigate and conjuring another the
+  same instant is the one implausible thing left in the world's bookkeeping.
+- **AI steering, refined.** Good enough to play on and not yet right: a hull can still pin itself
+  against a headland and sit there (watched happening, 2026-10-23). The instrumentation for it is
+  in place - the session log reports how far a ship actually sailed against how far it got, which
+  separates a hull going in circles from one not being moved at all.
+- **Post-release:** Android/macOS builds (M8b), and alternative ammunition types.
 
 ## Credits
 
