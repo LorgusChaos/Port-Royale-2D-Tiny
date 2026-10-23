@@ -29,6 +29,8 @@ import com.portroyale.tiny.combat.ShipCombatant
 import com.portroyale.tiny.diagnostics.DiagnosticsFiles
 import com.portroyale.tiny.diagnostics.GameLog
 import com.portroyale.tiny.diagnostics.GameRandom
+import com.portroyale.tiny.diagnostics.ShotRequest
+import com.portroyale.tiny.diagnostics.ShotScreen
 import com.portroyale.tiny.diagnostics.WorldWatchdog
 import com.portroyale.tiny.economy.Captain
 import com.portroyale.tiny.economy.FleetSimulation
@@ -68,6 +70,7 @@ import com.portroyale.tiny.ui.PortHubUI
 import com.portroyale.tiny.ui.PropertyUI
 import com.portroyale.tiny.ui.SaveGameUI
 import com.portroyale.tiny.ui.SettingsUI
+import com.portroyale.tiny.ui.ShipArt
 import com.portroyale.tiny.ui.ShipStatusUI
 import com.portroyale.tiny.ui.ShipyardUI
 import com.portroyale.tiny.ui.TavernUI
@@ -358,7 +361,11 @@ private class ResolvedPort(val port: Ports.Port, val worldPos: Vector2, val appr
  * wheel zooms; the camera pans when the cursor nears a screen edge while sailing, clamped to the
  * map bounds; a minimap in the top-right corner shows the current view as a rectangle.
  */
-class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter() {
+class PortRoyaleGame(
+    private val version: String = "dev",
+    /** Set for a --shot launch: open one screen, save a screenshot, quit. See [ShotRequest]. */
+    private val shot: ShotRequest? = null
+) : ApplicationAdapter() {
 
     private lateinit var shapeRenderer: ShapeRenderer
     private lateinit var batch: SpriteBatch
@@ -367,7 +374,6 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     private lateinit var portLabelFont: BitmapFont
     private var portLabelBaseLineHeight = 0f
     private lateinit var mapTexture: Texture
-    private lateinit var shipTextures: Map<String, Texture>
     private lateinit var camera: OrthographicCamera
     private lateinit var viewport: Viewport
     private lateinit var minimapCamera: OrthographicCamera
@@ -497,6 +503,9 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     private lateinit var sailingWithToastInputProcessor: InputMultiplexer
 
     override fun create() {
+        // Before the seed is logged and before anything spawns, so a shot's AI ships and sea
+        // events land in the same places on every run with the same --shot-seed.
+        shot?.seed?.let { GameRandom.reseed(it) }
         // Before anything that can fail: asset loading is the most likely thing to blow up on a
         // machine that is not this one, and a crash there is exactly the one worth a report.
         installDiagnostics()
@@ -530,9 +539,11 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         // thousand-pixel map is squeezed onto a minimap two hundred wide.
         mapTexture = Texture(mapPixmap, true)
         mapTexture.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear)
-        shipTextures = (ShipTypes.ALL.map { it.spritePath } + ShipTypes.LONGBOAT.spritePath +
-            AiShipFactory.ALL_SPRITES).distinct()
-            .associateWith { Texture(Gdx.files.internal(it)) }
+        // Loaded up front rather than on first sight, so the first time a new hull class sails
+        // into view is not also the frame that uploads its texture. See ShipArt for the filter.
+        (ShipTypes.ALL.map { it.spritePath } + ShipTypes.LONGBOAT.spritePath + AiShipFactory.ALL_SPRITES)
+            .distinct()
+            .forEach { ShipArt.texture(it) }
 
         camera = OrthographicCamera()
         viewport = FitViewport(MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT, camera)
@@ -598,7 +609,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         AudioManager.setMuted(settings.muted)
         // Windowed mode is always left exactly as the user sized it - only a saved fullscreen
         // preference ever changes the window on startup.
-        if (settings.fullscreen) {
+        // A shot keeps the fixed window size it was launched with, so its pictures compare.
+        if (settings.fullscreen && shot == null) {
             val mode = Gdx.graphics.displayModes
                 .filter { it.width == settings.windowWidth && it.height == settings.windowHeight }
                 .maxByOrNull { it.refreshRate }
@@ -608,6 +620,50 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         shipPosition.set(defaultStartPosition())
 
         showMainMenu()
+        shot?.let { stageShot(it) }
+    }
+
+    private var shotFramesRendered = 0
+    private var shotTaken = false
+
+    /** Puts the game on the screen a --shot launch asked for, through the same calls a player's
+     *  clicks would make - a shot of a state no player can reach would prove nothing. */
+    private fun stageShot(request: ShotRequest) {
+        if (request.screen == ShotScreen.MENU) return
+        startNewGame("Captain")
+        if (request.screen == ShotScreen.SEA) {
+            camera.position.set(shipPosition.x, shipPosition.y, 0f)
+            camera.zoom = JUMP_TO_SHIP_ZOOM
+            clampCamera()
+            return
+        }
+        val port = resolvedPorts.firstOrNull { it.port.name.equals(request.port, ignoreCase = true) }
+            ?: throw IllegalArgumentException(
+                "--shot-port: no port named '${request.port}'. Ports: ${resolvedPorts.joinToString { it.port.name }}"
+            )
+        arriveAtPort(port)
+        when (request.screen) {
+            ShotScreen.MARKET -> openMarket()
+            ShotScreen.SHIPYARD -> openShipyard()
+            ShotScreen.STATUS -> openShipStatus()
+            ShotScreen.FORTRESS -> openFortress()
+            ShotScreen.WAREHOUSE -> openWarehouse()
+            ShotScreen.TAVERN -> openTavern()
+            ShotScreen.DOCKS -> openDocks()
+            ShotScreen.HUB, ShotScreen.MENU, ShotScreen.SEA -> {}
+        }
+    }
+
+    /** Called last in render(), after everything is drawn, so the grab is the finished frame. */
+    private fun captureShotIfDue(request: ShotRequest) {
+        if (shotTaken) return
+        shotFramesRendered++
+        if (shotFramesRendered < request.frames) return
+        shotTaken = true
+        val path = DiagnosticsFiles.writeScreenshotTo(request.outPath)
+        // One line, greppable from a background run's output: SHOT <absolute path> or SHOT FAILED.
+        println("SHOT ${path ?: "FAILED"}")
+        Gdx.app.exit()
     }
 
     private fun defaultStartPosition(): Vector2 =
@@ -812,6 +868,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         // either - e.g. a delivery toast can be triggered by arriveAtPort() switching to
         // GameMode.IN_PORT earlier in this same frame, before this draw pass runs.
         if (appState == AppState.PLAYING) eventToastUI.render(Gdx.graphics.deltaTime)
+
+        shot?.let { captureShotIfDue(it) }
     }
 
     private fun handleInput(delta: Float) {
@@ -1543,7 +1601,9 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
      */
     private fun installDiagnostics() {
         try {
-            val logFile = DiagnosticsFiles.beginSession(version)
+            // A shot opens no session log: the folder keeps only the last few sessions, and a
+            // run of screenshots would rotate a real play session's log out of it.
+            val logFile = if (shot == null) DiagnosticsFiles.beginSession(version) else null
             GameLog.start(
                 environment = describeEnvironment(),
                 sink = { line -> DiagnosticsFiles.append(line) },
@@ -3754,7 +3814,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             val ownedShip = player.ownedShips.find { it.id == captain.shipId } ?: continue
             val (pos, heading) = fleetShipTransform(captain) ?: continue
 
-            val texture = shipTextures.getValue(ownedShip.shipType.spritePath)
+            val texture = ShipArt.texture(ownedShip.shipType.spritePath)
             val width = BASE_SHIP_SPRITE_WIDTH * ownedShip.shipType.spriteScale * FLEET_SHIP_SPRITE_SCALE
             val height = width * (texture.height.toFloat() / texture.width.toFloat())
 
@@ -3780,7 +3840,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     private fun drawAiShips() {
         for (ship in aiShips) {
-            val texture = shipTextures.getValue(ship.spritePath)
+            val texture = ShipArt.texture(ship.spritePath)
             val width = BASE_SHIP_SPRITE_WIDTH
             val height = width * (texture.height.toFloat() / texture.width.toFloat())
 
@@ -3803,7 +3863,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     private fun drawShip() {
         val shipType = player.ship
-        val texture = shipTextures.getValue(shipType.spritePath)
+        val texture = ShipArt.texture(shipType.spritePath)
         val width = BASE_SHIP_SPRITE_WIDTH * shipType.spriteScale
         val height = width * (texture.height.toFloat() / texture.width.toFloat())
 
@@ -3861,7 +3921,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         radialTexture.dispose()
         portLabelFont.dispose()
         mapTexture.dispose()
-        shipTextures.values.forEach { it.dispose() }
+        ShipArt.dispose()
         portHubUI.dispose()
         marketUI.dispose()
         shipyardUI.dispose()

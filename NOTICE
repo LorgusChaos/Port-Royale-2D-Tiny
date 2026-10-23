@@ -35,7 +35,8 @@ referenced by any code)
   Public domain - usable without restriction, credit not required but given
   here as a courtesy.
 
-assets/sprites/ships/ship2_*.png, assets/sprites/icons/, assets/sprites/ui/
+assets/sprites/ships/ship2_*.png, assets/sprites/icons/, assets/sprites/ui/,
+and their source sheets under art-src/
 
   AI-generated ship sprites (5 hull tiers x 6 sail colors), city-menu icons
   (Market/Shipyard/Warehouse/Commandant/Tavern), and the port hub's frame

@@ -1,7 +1,5 @@
 package com.portroyale.tiny.ui
 
-import com.badlogic.gdx.Gdx
-import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.TextureRegion
 import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
@@ -35,7 +33,6 @@ class ShipyardUI(
 
     private val skin = UiSkinFactory.build()
     private val root = Table()
-    private val shipTextures = mutableMapOf<String, Texture>()
     private lateinit var goldLabel: Label
     private val shipStatusLabels = mutableMapOf<ShipType, Label>()
     private lateinit var shipGrid: Table
@@ -71,10 +68,7 @@ class ShipyardUI(
     fun dispose() {
         stage.dispose()
         skin.dispose()
-        shipTextures.values.forEach { it.dispose() }
     }
-
-    private fun textureFor(path: String): Texture = shipTextures.getOrPut(path) { Texture(Gdx.files.internal(path)) }
 
     private fun buildLayout() {
         val panel = Table()
@@ -139,7 +133,7 @@ class ShipyardUI(
         val card = Table()
         card.background = skin.getDrawable("field-frame")
 
-        val thumb = Image(TextureRegionDrawable(TextureRegion(textureFor(shipType.spritePath))))
+        val thumb = Image(TextureRegionDrawable(TextureRegion(ShipArt.texture(shipType.spritePath))))
         thumb.setScaling(Scaling.fit)
         thumb.color = shipType.tint
         card.add(thumb).size(46f, 78f).colspan(2).padTop(6f).row()

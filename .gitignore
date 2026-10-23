@@ -58,3 +58,6 @@ desktop.ini
 
 # --- Throwaway map style samples (M16 exploration, not assets) ---
 map-style-preview/
+
+# --- Python bytecode (tools/art) ---
+__pycache__/

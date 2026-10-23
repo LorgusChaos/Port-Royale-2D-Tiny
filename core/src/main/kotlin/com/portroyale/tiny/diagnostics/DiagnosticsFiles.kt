@@ -70,18 +70,35 @@ object DiagnosticsFiles {
      * there is nothing left to read a framebuffer from.
      */
     fun writeScreenshot(prefix: String): String? = try {
-        val pixmap = Pixmap.createFromFrameBuffer(0, 0, Gdx.graphics.backBufferWidth, Gdx.graphics.backBufferHeight)
         val dir = Gdx.files.external(DIAGNOSTICS_DIR)
         dir.mkdirs()
-        val file = dir.child("$prefix-${stamp()}.png")
-        // flipY, because a framebuffer's origin is bottom-left and a PNG's is top-left - without
-        // it every screenshot came out upside down, which is a poor way to report a visual bug.
-        PixmapIO.writePNG(file, pixmap, Deflater.DEFAULT_COMPRESSION, true)
-        pixmap.dispose()
-        file.file().absolutePath
+        grabFrameBuffer(dir.child("$prefix-${stamp()}.png"))
     } catch (e: Throwable) {
         println("Diagnostics: no screenshot (${e.message})")
         null
+    }
+
+    /** The same grab, to an exact path - for the --shot launch (see ShotRequest), whose caller
+     *  needs to know where the picture is without searching the diagnostics folder for it. */
+    fun writeScreenshotTo(path: String): String? = try {
+        val file = Gdx.files.absolute(java.io.File(path).absolutePath)
+        file.parent().mkdirs()
+        grabFrameBuffer(file)
+    } catch (e: Throwable) {
+        println("Diagnostics: no screenshot at $path (${e.message})")
+        null
+    }
+
+    private fun grabFrameBuffer(file: FileHandle): String {
+        val pixmap = Pixmap.createFromFrameBuffer(0, 0, Gdx.graphics.backBufferWidth, Gdx.graphics.backBufferHeight)
+        try {
+            // flipY, because a framebuffer's origin is bottom-left and a PNG's is top-left - without
+            // it every screenshot came out upside down, which is a poor way to report a visual bug.
+            PixmapIO.writePNG(file, pixmap, Deflater.DEFAULT_COMPRESSION, true)
+        } finally {
+            pixmap.dispose()
+        }
+        return file.file().absolutePath
     }
 
     private fun write(name: String, content: String): String? = try {

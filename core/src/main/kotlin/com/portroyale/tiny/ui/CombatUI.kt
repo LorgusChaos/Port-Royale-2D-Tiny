@@ -1,6 +1,5 @@
 package com.portroyale.tiny.ui
 
-import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
@@ -33,7 +32,6 @@ class CombatUI(private val onCombatEnd: (CombatOutcome) -> Unit) {
 
     private val skin = UiSkinFactory.build()
     private val root = Table()
-    private val shipTextures = mutableMapOf<String, Texture>()
     private val cannonballDrawable = TextureRegionDrawable(TextureRegion(buildCannonballTexture()))
 
     private lateinit var titleLabel: Label
@@ -58,8 +56,8 @@ class CombatUI(private val onCombatEnd: (CombatOutcome) -> Unit) {
     fun open(combatState: CombatState) {
         combat = combatState
         busy = false
-        playerShipImage.drawable = TextureRegionDrawable(TextureRegion(textureFor(combatState.playerSpritePath)))
-        enemyShipImage.drawable = TextureRegionDrawable(TextureRegion(textureFor(combatState.enemySpritePath)))
+        playerShipImage.drawable = TextureRegionDrawable(TextureRegion(ShipArt.texture(combatState.playerSpritePath)))
+        enemyShipImage.drawable = TextureRegionDrawable(TextureRegion(ShipArt.texture(combatState.enemySpritePath)))
         playerShipImage.color = Color.WHITE
         enemyShipImage.color = Color.WHITE
         refresh()
@@ -79,10 +77,7 @@ class CombatUI(private val onCombatEnd: (CombatOutcome) -> Unit) {
         stage.dispose()
         skin.dispose()
         cannonballDrawable.region.texture.dispose()
-        shipTextures.values.forEach { it.dispose() }
     }
-
-    private fun textureFor(path: String): Texture = shipTextures.getOrPut(path) { Texture(Gdx.files.internal(path)) }
 
     private fun buildCannonballTexture(): Texture {
         val size = 16

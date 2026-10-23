@@ -63,6 +63,9 @@ splits them so review attention goes where it's expensive.
 4. **A clean exit (code 0) is never treated as user confirmation that a change looks/works
    right** — it only means the process didn't crash. Always wait for the user to actually look at
    the running game (screenshot or description) before calling a visual/UX change done.
+   Before asking, look yourself: `:lwjgl3:run --args="--shot=<screen>"` opens that screen in a
+   fresh game, saves a PNG and exits (see "Artwork" below) — then Read the PNG. That catches the
+   obvious misses so the user's look is spent on judgement, not on "it isn't there at all".
 5. For interactive/visual bugs, don't ask multiple-choice diagnostic questions — launch the game
    and have the user reproduce it live. Abstract questions about a UI bug are usually harder for
    the user to answer than just showing you.
@@ -135,6 +138,30 @@ logs, crash reports, screenshots). **Ask the user for that folder before theoris
 asserts nothing, because what the right numbers are is what M15 has to decide. Its axis is **real
 hours of play, not game days**: the clock runs 10x, so one game day is 2.4 hours at the keyboard,
 and plotting game days puts every threshold out by a factor of 144.
+
+## Artwork
+
+Any new or replaced picture goes through the `art` skill (`.claude/skills/art/SKILL.md`, also
+`/art`), even a one-off. In short:
+
+- Sources and mockups in `art-src/`, never in `assets/` (that folder ships inside the jar).
+- Sprites are produced by `tools/art/art.py` (`slice` a sheet, `bleed` a single cut-out,
+  `preview` edges) — never cropped or cleaned by hand. Python deps: `tools/art/requirements.txt`.
+- Painted art is drawn with mipmaps + Linear filtering, which only looks right if the RGB under
+  transparent pixels matches the edge (`bleed`); otherwise every sprite gets a white or black rim.
+  Ships load through `ui/ShipArt.kt`, icons through `IconFactory.buildArtIcon` — never a bare
+  `Texture(Gdx.files.internal(...))`, which gets Nearest and no mipmaps.
+- `AssetIntegrityTest` (part of `:core:test`) fails on missing paths, opaque backgrounds, unbled
+  edges and source files left in `assets/`.
+- Shot mode, for looking at a screen without a person at the keyboard:
+  ```
+  ./gradlew.bat -q :lwjgl3:run --args="--shot=market --shot-port=Havana --shot-seed=1"
+  ```
+  Screens: menu, sea, hub, market, shipyard, status, fortress, warehouse, tavern, docks. Also
+  `--shot-out=<png>` (default `lwjgl3/build/shots/<screen>.png`, relative to `lwjgl3/`),
+  `--shot-frames=<n>` (30), `--shot-size=<w>x<h>` (1280x720). It prints `SHOT <path>` and exits;
+  it always starts a new game (never a save) and writes no session log. Parsing lives in
+  `diagnostics/ShotRequest.kt`, staging in `PortRoyaleGame.stageShot`.
 
 ## Release workflow
 
