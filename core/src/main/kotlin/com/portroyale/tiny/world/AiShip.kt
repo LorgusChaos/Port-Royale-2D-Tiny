@@ -36,17 +36,17 @@ class AiShip(
     val faction: Faction?,
     val spritePath: String,
     val tint: Color,
-    val speed: Float,
+    override val speed: Float,
     val maxHull: Int,
     val minDamage: Int,
     val maxDamage: Int,
     val goldReward: Int,
     val tier: Int,
-    val position: Vector2,
+    override val position: Vector2,
     /** How smartly this hull answers her helm - the same statistic the ship classes carry and
      *  combat already uses. Defaulted so the many tests that build ships by hand need not care. */
     val maneuverability: Int = 50
-) {
+) : Pilot.Hull {
     /**
      * Damage this hull is carrying. Fights used to be resolved from [maxHull] every time, so a
      * warship that had just been through three battles met the fourth as good as new - which made
@@ -115,7 +115,7 @@ class AiShip(
     var huntCheckCooldown: Float = 0f
 
     /** Degrees per second this hull can come round - see Helm. */
-    val turnRate: Float get() = Helm.turnRate(maneuverability)
+    override val turnRate: Float get() = Helm.turnRate(maneuverability)
 
     /**
      * Where this ship has actually been, sampled every so often, for anyone following it.
@@ -128,9 +128,48 @@ class AiShip(
      */
     val wake: MutableList<Vector2> = mutableListOf()
 
-    var headingDeg: Float = 0f
-    var path: List<Vector2> = emptyList()
-    var pathIndex: Int = 0
+    override var headingDeg: Float = 0f
+    override var path: List<Vector2> = emptyList()
+    override var pathIndex: Int = 0
+
+    /**
+     * Ground actually covered since the watchdog last looked, and where it was last measured
+     * from.
+     *
+     * Displacement alone cannot tell the two failures apart, and they want opposite fixes: a hull
+     * going round in circles at full speed and a hull frozen solid both end a sweep a few units
+     * from where they began. One is a steering fault, the other is a hull that is not being moved
+     * at all. Counted here across every source of movement - the pilot, a chase, a flight,
+     * crowding, a rescue nudge - because the question is simply how much sea went past.
+     */
+    var groundCovered: Float = 0f
+    val odometerMark: Vector2 = position.cpy()
+
+    /** The pilot's notebook - see Pilot.Hull. Nothing outside Pilot writes these. */
+    override var trackedWaypoint: Vector2? = null
+    override var closestApproach: Float = Float.MAX_VALUE
+    override var stalledFor: Float = 0f
+
+    /**
+     * Where this ship is actually bound, kept apart from the route that takes it there.
+     *
+     * Only the route used to be recorded, so "where are you going?" could only be answered by
+     * looking at the last waypoint - and a ship that lost its route lost the answer with it. The
+     * consequence was that a hull blocked for a single frame had to *choose somewhere new*, which
+     * is how a trader came to abandon the port it was bound for because a headland was in the
+     * way for a quarter of a second. See PortRoyaleGame.breakFree.
+     */
+    var destination: Vector2? = null
+
+    /**
+     * Courses laid for this hull since the watchdog last looked.
+     *
+     * A ship butting at a headland and a ship sailing calmly along look identical in a position
+     * log, and tell quite different stories here: the first is being handed a fresh course several
+     * times a second, each one starting from the spot it cannot leave. Counting them is how
+     * "stuck" stops being a guess about which system has hold of the ship.
+     */
+    var routeRelays: Int = 0
 
     /**
      * The point this ship lives around - its home port for a faction ship, the lair for a pirate.

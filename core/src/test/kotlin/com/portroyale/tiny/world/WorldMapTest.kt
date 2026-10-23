@@ -119,15 +119,28 @@ class WorldMapTest {
     }
 
     @Test
-    fun `a path is a connected chain of neighbouring steps`() {
-        val worldMap = map()
-        val path = worldMap.findPath(cell(2, 2), cell(14, 11))
+    fun `a path is a chain of legs a hull can sail in a straight line`() {
+        // This used to require consecutive waypoints to be neighbouring cells, which was a
+        // statement about the search rather than about the route: a route is now string-pulled,
+        // so a leg across open water is one waypoint to the next and hundreds of units long.
+        // What actually has to hold is that the water between them is continuous - the invariant
+        // the old wording was standing in for.
+        val worldMap = map(*(0..15).map { 10 to it }.toTypedArray()) // wall with a gap at the top
+        val path = worldMap.findPath(cell(2, 2), cell(18, 2))
         assertNotNull(path)
         for (i in 1 until path.size) {
-            assertTrue(
-                path[i].dst(path[i - 1]) <= cellSize * 1.5f,
-                "step $i teleports from ${path[i - 1]} to ${path[i]}"
-            )
+            val from = path[i - 1]
+            val to = path[i]
+            val steps = (from.dst(to) / (cellSize * 0.5f)).toInt().coerceAtLeast(1)
+            for (step in 0..steps) {
+                val along = step.toFloat() / steps
+                val x = from.x + (to.x - from.x) * along
+                val y = from.y + (to.y - from.y) * along
+                assertTrue(
+                    worldMap.isWater(x, y),
+                    "leg $i from $from to $to crosses land at ($x, $y)"
+                )
+            }
         }
     }
 

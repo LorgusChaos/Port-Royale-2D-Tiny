@@ -32,6 +32,19 @@ class WorldMap(
     private val gridH = (worldHeight / cellSize).toInt()
     private val walkable = BooleanArray(gridW * gridH)
 
+    /**
+     * Cells of open sea between each cell and the nearest land, capped at
+     * [MAX_TRACKED_CLEARANCE]. Land is 0; the map's own edge counts as a shore, since a hull
+     * cannot cross it either.
+     *
+     * This exists because a route is sailed by a ship with a turning circle, not by a point. A*
+     * on plain distance hugs every coastline it rounds - that is the shortest way past a
+     * headland - and a hull whose turning circle is wider than the berth the route left it
+     * cannot follow that line at all: it overshoots into the shallows, slides along the beach,
+     * and the watchdog reports it as stuck. Keeping a berth is cheaper than steering out of one.
+     */
+    private val clearanceCells = ByteArray(gridW * gridH)
+
     // --- pathfinding working set, reused between calls (see findPathInternal) ---
     private val gScore = FloatArray(gridW * gridH)
     private val cameFrom = IntArray(gridW * gridH)
@@ -55,6 +68,90 @@ class WorldMap(
                 walkable[gy * gridW + gx] = isWaterColor(pixmap.getPixel(px, py))
             }
         }
+        computeClearance()
+    }
+
+    /**
+     * Distance-to-land for every cell, in one sweep outward from every shore at once.
+     *
+     * A breadth-first flood from all land cells simultaneously: each ring of sea it reaches is
+     * one cell further out than the last, so a single pass over the grid labels the whole map.
+     * Costs one visit per cell at load time and nothing afterwards, which is the point - the
+     * pathfinder asks this question for every cell it expands.
+     */
+    private fun computeClearance() {
+        val queue = IntArray(gridW * gridH)
+        var head = 0
+        var tail = 0
+        for (cell in walkable.indices) {
+            if (walkable[cell]) {
+                clearanceCells[cell] = UNVISITED_CLEARANCE
+            } else {
+                clearanceCells[cell] = 0
+                queue[tail++] = cell
+            }
+        }
+        // The edge of the map is a shore like any other: isWater refuses anything outside the
+        // bounds, so a hull can no more cross it than it can cross Cuba. Seeded after the land so
+        // the queue stays in non-decreasing order, which is what makes a plain FIFO correct here.
+        for (gy in 0 until gridH) {
+            for (gx in 0 until gridW) {
+                if (gx != 0 && gy != 0 && gx != gridW - 1 && gy != gridH - 1) continue
+                val cell = gy * gridW + gx
+                if (clearanceCells[cell] != UNVISITED_CLEARANCE) continue
+                clearanceCells[cell] = 1
+                queue[tail++] = cell
+            }
+        }
+        while (head < tail) {
+            val cell = queue[head++]
+            val next = clearanceCells[cell] + 1
+            if (next > MAX_TRACKED_CLEARANCE) continue
+            val cx = cell % gridW
+            val cy = cell / gridW
+            for (direction in 0 until 8) {
+                val nx = cx + DIR_X[direction]
+                val ny = cy + DIR_Y[direction]
+                if (nx < 0 || ny < 0 || nx >= gridW || ny >= gridH) continue
+                val neighbour = ny * gridW + nx
+                if (clearanceCells[neighbour] != UNVISITED_CLEARANCE) continue
+                clearanceCells[neighbour] = next.toByte()
+                queue[tail++] = neighbour
+            }
+        }
+        // Water the sweep never reached is further out than we care to count - open ocean.
+        for (cell in clearanceCells.indices) {
+            if (clearanceCells[cell] == UNVISITED_CLEARANCE) {
+                clearanceCells[cell] = MAX_TRACKED_CLEARANCE.toByte()
+            }
+        }
+    }
+
+    /** Cells of sea between ([gx], [gy]) and the nearest land. Callers must have checked the cell
+     *  is on the grid. */
+    private fun clearanceAt(gx: Int, gy: Int): Int = clearanceCells[gy * gridW + gx].toInt()
+
+    /** Cells of sea between a world point and the nearest land - 0 on land or off the map. */
+    fun clearanceCellsAt(x: Float, y: Float): Int {
+        if (x < 0f || y < 0f || x > worldWidth || y > worldHeight) return 0
+        val gx = (x / cellSize).toInt().coerceIn(0, gridW - 1)
+        val gy = (y / cellSize).toInt().coerceIn(0, gridH - 1)
+        return clearanceAt(gx, gy)
+    }
+
+    /**
+     * What sailing through [cell] costs over and above the distance covered.
+     *
+     * A penalty rather than a wall, deliberately: the Caribbean has channels a hull must take
+     * because there is no other way through, and making shallow water impassable would strand
+     * every port whose approach is - as approaches are - close inshore. At a quarter of a cell
+     * per cell of missing berth, a route will go half again as far to get out of the shallows and
+     * no further, which is the difference between preferring open water and refusing a strait.
+     */
+    private fun coastPenalty(cell: Int): Float {
+        val clearance = clearanceCells[cell].toInt()
+        if (clearance >= BERTH_CELLS) return 0f
+        return COAST_PENALTY_PER_CELL * (BERTH_CELLS - clearance)
     }
 
     /** White is sea. Deliberately not a heuristic over an artist's palette - see the class note. */
@@ -159,7 +256,9 @@ class WorldMap(
             val currentIndex = (heapPop() and 0xFFFFFFFFL).toInt()
             if (closedStamp[currentIndex] == searchStamp) continue
             closedStamp[currentIndex] = searchStamp
-            if (currentIndex == goalIndex) return reconstruct(currentIndex, endWorld)
+            if (currentIndex == goalIndex) {
+                return reconstruct(currentIndex, endWorld, avoid, avoidRadiusWorld)
+            }
             // A goal behind a closed coast would otherwise mean walking every square of open
             // water in the Caribbean before admitting defeat.
             if (++expanded > MAX_EXPANSIONS) return null
@@ -177,7 +276,9 @@ class WorldMap(
                 if (dx != 0 && dy != 0 && (!passable(cx + dx, cy) || !passable(cx, cy + dy))) continue
                 val neighbour = ny * gridW + nx
                 if (closedStamp[neighbour] == searchStamp) continue
-                val tentative = currentG + if (dx != 0 && dy != 0) DIAGONAL_COST else 1f
+                val tentative = currentG +
+                    (if (dx != 0 && dy != 0) DIAGONAL_COST else 1f) +
+                    coastPenalty(neighbour)
                 if (seenStamp[neighbour] != searchStamp || tentative < gScore[neighbour]) {
                     seenStamp[neighbour] = searchStamp
                     gScore[neighbour] = tentative
@@ -189,7 +290,12 @@ class WorldMap(
         return null
     }
 
-    private fun reconstruct(goalIndex: Int, endWorld: Vector2): List<Vector2> {
+    private fun reconstruct(
+        goalIndex: Int,
+        endWorld: Vector2,
+        avoid: Vector2?,
+        avoidRadiusWorld: Float
+    ): List<Vector2> {
         var length = 0
         var cell = goalIndex
         while (cell != -1) {
@@ -206,7 +312,84 @@ class WorldMap(
         @Suppress("UNCHECKED_CAST")
         val result = (path as Array<Vector2>).toMutableList()
         result[result.size - 1] = endWorld.cpy()
-        return result
+        return stringPull(result, avoid, avoidRadiusWorld)
+    }
+
+    /**
+     * Throws away every waypoint a hull does not actually need, leaving the long legs and the
+     * genuine corners.
+     *
+     * A* works in cells, so it returns a staircase: a point every ten units, each a few degrees
+     * off the last. No ship can sail that. Every hull in the game turns inside a circle of
+     * twenty-two to twenty-seven units - wider than the distance between two of those waypoints -
+     * so it overshoots each one, comes round, overshoots the next, and crawls along at a fraction
+     * of its own speed while never being anywhere near land. Sixty per cent of the diagnostics
+     * log was this.
+     *
+     * The fix is geometric, not a tuned number: keep a waypoint only where the straight line past
+     * it would cross something. What comes back is a handful of legs hundreds of units long, and
+     * a turn only where the hull really must come round a headland.
+     */
+    private fun stringPull(
+        path: List<Vector2>,
+        avoid: Vector2?,
+        avoidRadiusWorld: Float
+    ): List<Vector2> {
+        if (path.size <= 2) return path
+        val kept = ArrayList<Vector2>(16)
+        kept.add(path[0])
+        var anchor = 0
+        var index = 1
+        while (index < path.lastIndex) {
+            if (!clearRun(path[anchor], path[index + 1], avoid, avoidRadiusWorld)) {
+                kept.add(path[index])
+                anchor = index
+            }
+            index++
+        }
+        kept.add(path[path.lastIndex])
+        return kept
+    }
+
+    /**
+     * True when a hull can sail the straight line from [from] to [to] and keep a berth off the
+     * shore the whole way.
+     *
+     * The berth is the point. Testing only for water would let a shortcut shave the tip of a
+     * headland, passing through sea a cell wide - which is water on the grid and a stranding in
+     * practice, since a hull displaced a few units by crowding then has the beach under its lee.
+     * Close inshore the test simply fails and the staircase is kept, which is the right answer
+     * there: a ship threading a harbour approach wants every waypoint it was given.
+     */
+    private fun clearRun(
+        from: Vector2,
+        to: Vector2,
+        avoid: Vector2?,
+        avoidRadiusWorld: Float
+    ): Boolean {
+        val dx = to.x - from.x
+        val dy = to.y - from.y
+        val length = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (length <= 0f) return true
+        // Half a cell, so the walk cannot step over a cell corner-to-corner and miss it.
+        val steps = (length / (cellSize * 0.5f)).toInt() + 1
+        for (step in 0..steps) {
+            val along = step.toFloat() / steps
+            val gx = ((from.x + dx * along) / cellSize).toInt()
+            val gy = ((from.y + dy * along) / cellSize).toInt()
+            if (!isWalkableCell(gx, gy)) return false
+            if (clearanceAt(gx, gy) < SHORTCUT_BERTH_CELLS) return false
+            // The search was told to treat a circle of sea as impassable - a captain steering
+            // round a pirate. A shortcut that ignores it would straighten the detour back
+            // through the very danger it was laid to avoid, which is worse than no detour at
+            // all: the captain would believe they had evaded.
+            if (avoid != null && avoidRadiusWorld > 0f) {
+                val x = from.x + dx * along
+                val y = from.y + dy * along
+                if (avoid.dst(x, y) <= avoidRadiusWorld) return false
+            }
+        }
+        return true
     }
 
     /**
@@ -273,6 +456,33 @@ class WorldMap(
         val DIR_X = intArrayOf(0, 1, 0, -1, 1, 1, -1, -1)
         val DIR_Y = intArrayOf(1, 0, -1, 0, 1, -1, 1, -1)
         const val DIAGONAL_COST = 1.41421f
+
+        /**
+         * The berth a route keeps off the shore where it can, in cells.
+         *
+         * Three cells is thirty units - one typical hull length (WorldScale), and a little more
+         * than the widest turning circle on the map. That is the measure that matters: a route
+         * laid closer than a hull's own turning circle to the beach is one no hull can follow.
+         */
+        const val BERTH_CELLS = 3
+
+        /** What a cell of missing berth adds to the cost of a step. A quarter means a route will
+         *  go up to half again as far to get out of the shallows, and no further - enough to
+         *  prefer open water, not enough to refuse a strait that is the only way through. */
+        const val COAST_PENALTY_PER_CELL = 0.25f
+
+        /** Berth a straight-line shortcut must keep for the whole of its length - see
+         *  [clearRun]. Lower than [BERTH_CELLS] on purpose: the route is already laid to prefer
+         *  open water, and this only has to be enough that cutting between two of its waypoints
+         *  cannot shave a headland. */
+        const val SHORTCUT_BERTH_CELLS = 2
+
+        /** Cells of clearance worth counting. Beyond this it is simply open ocean, and the sweep
+         *  can stop rather than label the whole Caribbean. */
+        const val MAX_TRACKED_CLEARANCE = 8
+
+        /** Marks a cell the clearance sweep has not reached yet. */
+        const val UNVISITED_CLEARANCE: Byte = -1
         /** Cells a single search may expand before giving up. Generous enough for any route that
          *  exists across the whole map, tight enough that an unreachable goal costs a moment
          *  rather than a survey of every square of water in the Caribbean. */

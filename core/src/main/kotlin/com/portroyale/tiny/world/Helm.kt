@@ -34,8 +34,14 @@ object Helm {
      * would otherwise circle its own destination forever, which is a far worse bug than arriving
      * a few units wide of it.
      */
-    fun turningRadius(speed: Float, maneuverability: Int): Float {
-        val radiansPerSecond = turnRate(maneuverability) * MathUtils.degRad
+    fun turningRadius(speed: Float, maneuverability: Int): Float =
+        turningRadiusAt(speed, turnRate(maneuverability))
+
+    /** As [turningRadius], from a rate already worked out - which is what [Pilot] has to hand,
+     *  since following a course needs nothing of a hull but its speed and how fast it comes
+     *  round. */
+    fun turningRadiusAt(speed: Float, turnRateDegrees: Float): Float {
+        val radiansPerSecond = turnRateDegrees * MathUtils.degRad
         if (radiansPerSecond <= 0.0001f) return Float.MAX_VALUE
         return speed / radiansPerSecond
     }

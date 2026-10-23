@@ -209,8 +209,23 @@ object SaveManager {
         }
     }
 
+    /** The name the ship's boat used to carry. Old saves still hold it. */
+    private const val LEGACY_LONGBOAT_NAME = "Wreck"
+
+    /**
+     * The hull a save says the player was sailing.
+     *
+     * The longboat has to resolve to the longboat, and that is a fix rather than a detail. It
+     * used to fall through to a Sloop, on the reasoning that loading should not strand anyone in
+     * a wreck - but the longboat is not a dead end by design, and the fall-through handed out a
+     * free ship: lose a battle, reload, and the defeat was undone. The autosave runs every ten
+     * minutes, so it undid itself even when nobody was trying. A defeat that a reload erases is
+     * not a stake.
+     */
     fun resolveShipType(name: String): ShipType =
-        ShipTypes.ALL.firstOrNull { it.name == name } ?: ShipTypes.SLOOP
+        ShipTypes.ALL.firstOrNull { it.name == name }
+            ?: ShipTypes.LONGBOAT.takeIf { name == it.name || name == LEGACY_LONGBOAT_NAME }
+            ?: ShipTypes.SLOOP
 
     fun resolveCargo(saved: Map<String, Int>): Map<Good, Int> =
         Good.entries.associateWith { saved[it.name] ?: 0 }

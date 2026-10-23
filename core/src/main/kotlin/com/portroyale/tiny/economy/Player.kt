@@ -30,8 +30,8 @@ class Player(var gold: Int = 10000) {
         private set
 
     /** Stands in for [condition] only while [activeShipId] points at no real hull - i.e. after
-     *  [wreckShip], which leaves the player with no OwnedShip to carry it. */
-    private val wreckCondition = ShipCondition(ShipTypes.WRECK.maxHull)
+     *  [castAdrift], which leaves the player with no OwnedShip to carry it. */
+    private val longboatCondition = ShipCondition(ShipTypes.LONGBOAT.maxHull)
 
     /** Wear and upgrades of the hull being sailed right now - deliberately a *view* onto the
      *  active OwnedShip's own ShipCondition, not a second object holding the same kind of data.
@@ -40,7 +40,7 @@ class Player(var gold: Int = 10000) {
      *  silently handing out a free full repair and hull scrub. One condition per hull means the
      *  two can no longer disagree - the invariant OwnedShip's own docs already claimed. */
     val condition: ShipCondition
-        get() = ownedShips.find { it.id == activeShipId }?.condition ?: wreckCondition
+        get() = ownedShips.find { it.id == activeShipId }?.condition ?: longboatCondition
 
     val cargo = linkedMapOf<Good, Int>().apply {
         Good.entries.forEach { put(it, 0) }
@@ -137,17 +137,26 @@ class Player(var gold: Int = 10000) {
         ownedShips.find { it.id == shipId }?.name = name
     }
 
-    /** Wrecks the player's ship after a lost battle - no purchase, no choice, just gone (removed
-     *  from the fleet outright, not merely damaged). Any OTHER owned ships sitting in other ports
-     *  are untouched - the player just has to reach one, or buy a new one. See ShipTypes.WRECK and
-     *  PortRoyaleGame.finishCombat's DEFEAT handling. */
-    fun wreckShip() {
+    /**
+     * Strips the player to the ship's boat after a lost battle: the hull is gone from the fleet
+     * outright, the hold is empty and the purse is empty.
+     *
+     * Everything personal, in other words - and nothing else. Warehouses keep what was stored in
+     * them and the rest of the fleet goes on trading, which is deliberate: a merchant's standing
+     * capital is not aboard whichever ship he happens to be sailing, and pirates in open water
+     * cannot rob a warehouse in Havana. What that leaves is a game whose late-game stake sits
+     * with the fleet rather than with the player's own hull - see
+     * Project design/10-game-vision.md §12.2.
+     *
+     * See ShipTypes.LONGBOAT and PortRoyaleGame.finishCombat's DEFEAT handling.
+     */
+    fun castAdrift() {
         gold = 0
         Good.entries.forEach { cargo[it] = 0 }
         ownedShips.removeAll { it.id == activeShipId }
         activeShipId = -1
-        ship = ShipTypes.WRECK
-        wreckCondition.resetFor(ship.maxHull)
+        ship = ShipTypes.LONGBOAT
+        longboatCondition.resetFor(ship.maxHull)
     }
 
     fun canUpgradeCannons(): Boolean = condition.cannonUpgradeCost()?.let { gold >= it } ?: false
@@ -306,7 +315,7 @@ class Player(var gold: Int = 10000) {
         // resolves to - there is nothing left over from the old hull to reset.
         ownedShips.add(OwnedShip(1, "Sloop", ShipTypes.SLOOP, ""))
         activeShipId = 1
-        wreckCondition.resetFor(ShipTypes.WRECK.maxHull)
+        longboatCondition.resetFor(ShipTypes.LONGBOAT.maxHull)
     }
 
     /** Overwrites state from a loaded save, bypassing the buy/sell gold accounting. Ship

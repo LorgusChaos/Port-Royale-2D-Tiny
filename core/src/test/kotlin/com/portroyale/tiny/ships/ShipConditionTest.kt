@@ -178,7 +178,7 @@ class EffectiveStatsTest {
 
     @Test
     fun `damage never rolls backwards - min stays at or below max`() {
-        for (shipType in ShipTypes.ALL + ShipTypes.WRECK) {
+        for (shipType in ShipTypes.ALL + ShipTypes.LONGBOAT) {
             for (level in 0..MAX_UPGRADE_LEVEL) {
                 val condition = ShipCondition(shipType.maxHull).apply { cannonLevel = level }
                 assertTrue(

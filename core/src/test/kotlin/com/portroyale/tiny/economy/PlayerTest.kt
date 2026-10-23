@@ -236,8 +236,8 @@ class PlayerTest {
         // activeShipId points at nothing after a wreck, so condition falls back rather than
         // crashing whatever HUD or combat screen asks for the hull.
         val player = freshPlayer()
-        player.wreckShip()
-        assertEquals(ShipTypes.WRECK.maxHull, player.condition.currentHull)
+        player.castAdrift()
+        assertEquals(ShipTypes.LONGBOAT.maxHull, player.condition.currentHull)
         assertEquals(0, player.condition.cannonLevel)
     }
 
@@ -301,23 +301,23 @@ class PlayerTest {
     // --- losing a ship ---
 
     @Test
-    fun `a wreck costs the captain their gold, cargo and hull`() {
+    fun `being cast adrift costs the captain their gold, cargo and hull`() {
         val player = freshPlayer()
         player.buy(Good.SUGAR, 100)
-        player.wreckShip()
+        player.castAdrift()
 
         assertEquals(0, player.gold)
         assertEquals(0, player.cargoUsed)
-        assertSame(ShipTypes.WRECK, player.ship)
+        assertSame(ShipTypes.LONGBOAT, player.ship)
         assertTrue(player.ownedShips.isEmpty())
     }
 
     @Test
-    fun `a wreck leaves ships docked in other ports untouched`() {
+    fun `being cast adrift leaves ships docked in other ports untouched`() {
         val player = freshPlayer()
         val sloopId = player.activeShipId
         player.buyShip(ShipTypes.GALLEON, "Flagship", "Havana") // sloop now docked in Havana
-        player.wreckShip()
+        player.castAdrift()
 
         assertEquals(listOf(sloopId), player.ownedShips.map { it.id })
         assertEquals("Havana", player.ownedShips.single().dockedAt)
@@ -543,12 +543,46 @@ class PlayerTest {
     }
 
     @Test
+    fun `the ship's boat has no hold, so nothing can be carried or traded from it`() {
+        // The whole point of the boat: it carries a man, not a cargo. Being unable to trade is
+        // what forces a hull to be bought before trading can resume, and it is why the stored
+        // gold and the fleet below are the way back rather than a convenience.
+        val player = freshPlayer()
+        player.castAdrift()
+        player.gold = 10_000
+
+        assertEquals(0, player.cargoCapacity)
+        assertFalse(player.canBuy(1), "a boat with no hold cannot take on cargo at any price")
+
+        player.buyWarehouse("Havana")
+        // Stocked directly rather than through storeGood, which moves a unit out of the hold -
+        // and the hold is exactly what this player does not have.
+        player.warehouseAt("Havana")!!.goods[Good.SUGAR] = 1
+        assertFalse(
+            player.canWithdrawGood("Havana", Good.SUGAR),
+            "there is nowhere aboard to put it"
+        )
+    }
+
+    @Test
+    fun `a bought hull is the way out of the boat`() {
+        // The bottom of a game has to have a way up from it, or it is simply a lost save.
+        val player = freshPlayer()
+        player.castAdrift()
+        player.gold = ShipTypes.SLOOP.price
+
+        player.buyShip(ShipTypes.SLOOP, "Second Chance", "Havana")
+        assertSame(ShipTypes.SLOOP, player.ship)
+        assertEquals(ShipTypes.SLOOP.cargoCapacity, player.cargoCapacity)
+    }
+
+    @Test
     fun `warehouse gold survives losing the ship`() {
         // The stated point of a warehouse: a hedge against being cleaned out by pirates.
         val player = freshPlayer()
         player.buyWarehouse("Havana")
         player.storeGold("Havana", 1000)
-        player.wreckShip()
+        player.castAdrift()
         assertEquals(0, player.gold)
         assertEquals(1000, player.warehouseAt("Havana")!!.gold)
     }

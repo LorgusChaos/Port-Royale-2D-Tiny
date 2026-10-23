@@ -41,8 +41,11 @@ class SaveManagerTest {
 
     @Test
     fun `a wreck cannot be restored from a save`() {
-        // WRECK is deliberately outside ShipTypes.ALL, so loading cannot strand a player in one.
-        assertSame(ShipTypes.SLOOP, SaveManager.resolveShipType("Wreck"))
+        // A saved longboat must come back a longboat, under either the current name or the one
+        // old saves carry. It used to come back a Sloop - lose a battle, reload, and you had a
+        // free ship; with a ten-minute autosave the defeat undid itself unprompted.
+        assertSame(ShipTypes.LONGBOAT, SaveManager.resolveShipType("Longboat"))
+        assertSame(ShipTypes.LONGBOAT, SaveManager.resolveShipType("Wreck"))
     }
 
     // --- cargo and reputation ---

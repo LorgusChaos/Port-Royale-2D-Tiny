@@ -52,6 +52,7 @@ import com.portroyale.tiny.world.AiShipRole
 import com.portroyale.tiny.world.Encounters
 import com.portroyale.tiny.world.Helm
 import com.portroyale.tiny.world.PirateVoyage
+import com.portroyale.tiny.world.Pilot
 import com.portroyale.tiny.ui.CaptainStatusUI
 import com.portroyale.tiny.ui.CombatUI
 import com.portroyale.tiny.ui.EventToastUI
@@ -229,9 +230,6 @@ private const val CRUISE_MIN_SECONDS = 4 * 60f
 private const val CRUISE_MAX_SECONDS = 8 * 60f
 /** Headings to try, in degrees off the line home, when working out of a pocket - see findWayOut. */
 private val STRAND_ESCAPE_ANGLES = intArrayOf(0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180)
-/** Headings to try either side of the intended course when the bow is towards a shore - see
- *  steer. Wide enough to work off a headland, never so wide as to sail back the way it came. */
-private val SHORE_CLEARANCE_ANGLES = intArrayOf(25, -25, 50, -50, 75, -75, 100, -100)
 private const val AI_REPAIR_SECONDS = 150f
 private const val RAID_ATTACK_COOLDOWN_MIN = 20f
 private const val RAID_ATTACK_COOLDOWN_MAX = 40f
@@ -261,9 +259,20 @@ private const val PIRATE_SEA_LABEL_SCALE = 2.2f
 
 /** How often the invariant checks sweep the world - see WorldWatchdog. */
 private const val WATCHDOG_INTERVAL_SECONDS = 5f
-/** Movement below this between two sweeps counts as "not moving". Generous: even the slowest hull
- *  covers far more than this in five seconds, so only a genuinely stuck ship trips it. */
-private const val WATCHDOG_STUCK_DISTANCE = 2f
+/**
+ * How little of the way a hull could have made in one sweep counts as "not moving".
+ *
+ * It used to be a flat two world units, which looked generous and was not: the sweep itself was
+ * counted in *game* seconds, so at 20x speed it came round every quarter of a real second, and
+ * any hull that paused for fifteen frames - coming about, waiting its turn for a course - was
+ * filed as stuck. A hundred and ten of a hundred and thirty-seven lines in a session log were
+ * this one check, which is the state a diagnostic is in when it has stopped being one.
+ *
+ * Measuring against the distance the hull *could* have covered makes the test mean the same
+ * thing at every game speed, and at a tenth it answers the question actually worth asking: is
+ * this ship getting anywhere at all?
+ */
+private const val WATCHDOG_STUCK_FRACTION = 0.1f
 // Scaled with the M14b port roster (12 -> 28 harbours) to hold roughly the pre-expansion density
 // of ships per port - otherwise the original 16 hulls spread over more than twice the coastline
 // and the sea reads as deserted. Rough by intent; real numbers come out of long play tests.
@@ -396,6 +405,9 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     private val watchdog = WorldWatchdog(WATCHDOG_INTERVAL_SECONDS)
     /** Where each AI ship was at the previous watchdog sweep, for the "has not moved" check. */
     private val lastWatchdogPositions = mutableMapOf<AiShip, Vector2>()
+    /** Sailing time since the last sweep. The sweep comes round on real seconds - a tester's
+     *  patience is real - while how far a hull should have got is a question about game time. */
+    private var watchdogWorldSeconds = 0f
     private var activeRaid: PirateRaid? = null
     /** The first raid of a session comes early on purpose. A new game otherwise spends eight
      *  quiet minutes before the world does anything at all, which reads as nothing happening
@@ -518,7 +530,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         // thousand-pixel map is squeezed onto a minimap two hundred wide.
         mapTexture = Texture(mapPixmap, true)
         mapTexture.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear)
-        shipTextures = (ShipTypes.ALL.map { it.spritePath } + AiShipFactory.ALL_SPRITES).distinct()
+        shipTextures = (ShipTypes.ALL.map { it.spritePath } + ShipTypes.LONGBOAT.spritePath +
+            AiShipFactory.ALL_SPRITES).distinct()
             .associateWith { Texture(Gdx.files.internal(it)) }
 
         camera = OrthographicCamera()
@@ -692,7 +705,12 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             // loop instead, it reported every ship at once as "not moving" the moment the player
             // opened a port screen - which is not a stuck ship, it is a paused simulation, and
             // thirty-nine such lines a session is exactly the noise this was built to avoid.
-            runWatchdog(worldDelta)
+            //
+            // Both clocks, and they are not interchangeable: how often to look is a question
+            // about the person watching (real seconds), how far a ship should have got is a
+            // question about the world (game seconds). Conflating them is what made the stuck
+            // check fire every quarter of a second at speed.
+            runWatchdog(Gdx.graphics.deltaTime, worldDelta)
             checkAiEncounters()
             // Game time, and in step with the ships. On real time the phases of a raid ran twenty
             // times slower than the world around them at 20x speed, which is why the first raid
@@ -1365,7 +1383,16 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         fleetScanOffset = (fleetScanOffset + 1) % fleetSize
         for (position in 0 until fleetSize) {
             val ship = aiShips[(fleetScanOffset + position) % fleetSize]
+            // Measured at the top of a ship's turn, so it takes in everything that moved the
+            // hull since - including separation, which runs after this loop has finished.
+            ship.groundCovered += ship.odometerMark.dst(ship.position)
+            ship.odometerMark.set(ship.position)
             if (ship.giveUpCooldown > 0f) ship.giveUpCooldown -= delta
+            // Counted here rather than inside the "needs a route" branch below, because a hull
+            // that is blocked while still holding waypoints never reaches that branch - and a
+            // timer that is only ever set and never counted down is a ship that asks for help
+            // exactly once and then lies there.
+            if (ship.retargetCooldown > 0f) ship.retargetCooldown -= delta
             // Self-healing, because prevention alone is not enough: A* refuses to plan a route
             // that STARTS on land, so a ship that has somehow ended up ashore can neither move
             // nor be given anywhere to go, and would sit there for the rest of the session.
@@ -1386,7 +1413,6 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 // laying a course is the most expensive thing this game does - so a refusal now
                 // buys a moment's silence while findWayOut works the ship loose.
                 if (ship.retargetCooldown > 0f) {
-                    ship.retargetCooldown -= delta
                     findWayOut(ship, delta)
                     continue
                 }
@@ -1400,23 +1426,15 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 }
                 continue
             }
-            val target = ship.path[ship.pathIndex]
-            val dx = target.x - ship.position.x
-            val dy = target.y - ship.position.y
-            val dist = Vector2(dx, dy).len()
-            if (dist < AI_SHIP_ARRIVE_THRESHOLD) {
-                ship.pathIndex++
-                continue
-            }
-            if (!steer(ship, dx / dist, dy / dist, delta)) {
-                // The route was laid over water, but a ship does not stay exactly on it: it counts
-                // as arrived anywhere within AI_SHIP_ARRIVE_THRESHOLD of a waypoint, and
-                // separateAiShips nudges it sideways when crowded. Around a coastal port only
-                // about half of that arrival circle is actually sea, so running blindly toward
-                // the next waypoint from a displaced position drove ships up the beach - which is
-                // what the watchdog kept reporting. Ask for a fresh route instead of sailing
-                // overland.
-                retargetAiShip(ship)
+            when (Pilot.follow(ship, AI_SHIP_ARRIVE_THRESHOLD, delta, worldMap::isWater)) {
+                Pilot.Step.SAILING -> Unit
+                // Out of waypoints. Nothing to do here - the branch above is exactly the one
+                // that exists for a hull with nowhere left to go, and it runs next frame.
+                Pilot.Step.ARRIVED -> Unit
+                Pilot.Step.BLOCKED -> breakFree(ship)
+                // Moving, but not arriving. Same answer as blocked - it needs a different way
+                // there - and the same rationing, since being stuck is a per-frame condition.
+                Pilot.Step.STALLED -> breakFree(ship)
             }
         }
         resolveContacts()
@@ -1440,11 +1458,18 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             ship.pursuingCaptain = null
             return false
         }
+        // Orders can outlive their target. A ship chasing the player who has since been reduced
+        // to the ship's boat would otherwise keep closing on something it will never be allowed
+        // to fight, and hang over it in circles until its own give-up timer expired.
+        if (ship.isPursuing && ship.pursuingCaptain == null && !player.ship.attackable) {
+            abandonPursuit(ship)
+            return false
+        }
         if (!ship.isPursuing) {
             var bestDist = PIRATE_FLEE_AWARENESS_RADIUS
             var bestCaptain: Captain? = null
             var found = false
-            if (player.ship != ShipTypes.WRECK && isHostile(ship, shipTier(player.ship))) {
+            if (player.ship.attackable && isHostile(ship, shipTier(player.ship))) {
                 val dist = ship.position.dst(shipPosition)
                 if (dist < bestDist) {
                     bestDist = dist
@@ -1632,8 +1657,10 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
 
     /** Runs the invariant checks (see [WorldWatchdog]). Every one of these is a state the world
      *  should never reach; each has a matching bug in this file's history. */
-    private fun runWatchdog(delta: Float) {
-        watchdog.update(delta) { reporter ->
+    private fun runWatchdog(realDelta: Float, worldDelta: Float) {
+        watchdogWorldSeconds += worldDelta
+        val sweepGameSeconds = watchdogWorldSeconds
+        val swept = watchdog.update(realDelta) { reporter ->
             for (ship in aiShips) {
                 val id = "${ship.displayName}#${ship.id}"
                 val position = ship.position
@@ -1647,16 +1674,24 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                     }
                 }
                 val previous = lastWatchdogPositions[ship]
-                if (previous != null && previous.dst(position) < WATCHDOG_STUCK_DISTANCE &&
-                    !isNearAnyPort(position)
+                val couldHaveMade = ship.speed * sweepGameSeconds
+                // A hull at anchor is not a hull in trouble: a harbour is where ships are
+                // supposed to sit still, and for a pirate the lair is the harbour.
+                val atRest = isNearAnyPort(position) || PirateSea.contains(position)
+                if (previous != null && couldHaveMade > 0f && !atRest &&
+                    previous.dst(position) < couldHaveMade * WATCHDOG_STUCK_FRACTION
                 ) {
                     reporter.problem("$id/stuck") {
-                        "$id has not moved in ${WATCHDOG_INTERVAL_SECONDS}s at " +
-                            "${position.x.toInt()}, ${position.y.toInt()} " +
-                            "(pursuing=${ship.isPursuing}, blockedFor=${ship.pursuitBlockedFor})"
+                        "$id made ${previous.dst(position).toInt()} units in " +
+                            "${sweepGameSeconds.toInt()}s of sailing, out of a possible " +
+                            "${couldHaveMade.toInt()}, having actually sailed " +
+                            "${ship.groundCovered.toInt()} - at ${position.x.toInt()}, " +
+                            "${position.y.toInt()} ${describeShipState(ship)}"
                     }
                 }
                 lastWatchdogPositions[ship] = position.cpy()
+                ship.routeRelays = 0
+                ship.groundCovered = 0f
             }
             lastWatchdogPositions.keys.retainAll(aiShips.toSet())
 
@@ -1689,6 +1724,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 reporter.problem("player/nan") { "the player's position is non-finite ($shipPosition)" }
             }
         }
+        if (swept) watchdogWorldSeconds = 0f
     }
 
     /** Puts a beached ship back on the nearest water and clears its stale route. Logged, not
@@ -1703,6 +1739,42 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
      * up, and is fit again in about [AI_REPAIR_SECONDS]. Away from home nothing heals, so a fleet
      * fighting wave after wave without going back does get worn down and can be finished.
      */
+    /**
+     * Why this hull is where it is, in one line.
+     *
+     * The first version of the stuck report said only "has not moved", which named the symptom
+     * and nothing else - so every investigation started by guessing which of a dozen systems had
+     * hold of the ship. A ship holding station in a raid squadron, a ship waiting its turn for a
+     * course, and a ship pinned against a headland are three different faults with the same
+     * symptom, and the log has to tell them apart on its own.
+     */
+    private fun describeShipState(ship: AiShip): String {
+        val state = buildList {
+            add(ship.role.name.lowercase())
+            if (ship.role == AiShipRole.PIRATE) add(ship.voyage.name.lowercase())
+            if (ship.isPursuing) add("pursuing-player")
+            ship.quarry?.let { add("chasing ${it.displayName}#${it.id} ${ship.chaseSeconds.toInt()}s") }
+            ship.fleeingFrom?.let { add("fleeing ${it.displayName}#${it.id}") }
+            if (ship.avoidedThreat != null) add("avoiding")
+            activeRaid?.let { raid ->
+                if (ship in raid.band) add("raid-band ${raid.phase.name.lowercase()}")
+                if (raid.squadrons.values.any { ship in it }) {
+                    add("squadron ${raid.phase.name.lowercase()}")
+                }
+            }
+            add("route ${ship.pathIndex}/${ship.path.size}")
+            if (ship.routeRelays > 0) add("${ship.routeRelays} courses laid this sweep")
+            if (ship.retargetCooldown > 0f) add("waiting-for-course")
+            if (ship.pursuitBlockedFor > 0f) add("blocked ${ship.pursuitBlockedFor.toInt()}s")
+            val nearest = resolvedPorts.minByOrNull { it.approachPoint.dst(ship.position) }
+            if (nearest != null) {
+                add("${nearest.approachPoint.dst(ship.position).toInt()}u off ${nearest.port.name}")
+            }
+            add("clearance ${worldMap.clearanceCellsAt(ship.position.x, ship.position.y)}")
+        }
+        return "(${state.joinToString(", ")})"
+    }
+
     private fun repairInHomeWaters(ship: AiShip, delta: Float) {
         if (ship.currentHull >= ship.maxHull) return
         val sheltered = if (ship.role == AiShipRole.PIRATE) {
@@ -2633,37 +2705,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
      * it - a turn can carry a ship wide of where it meant to go, and the sea does not owe anyone
      * the room to finish one.
      */
-    private fun steer(ship: AiShip, dirX: Float, dirY: Float, delta: Float): Boolean {
-        val desired = MathUtils.atan2(dirY, dirX) * MathUtils.radDeg
-        // A ship carrying rudder loses way, as one does in reality - and because it is slower it
-        // also turns inside a tighter circle, which is what lets it fetch up on a waypoint it
-        // could not have reached at full speed. That is the honest fix; widening what counts as
-        // "arrived" for sluggish hulls was papering over the missing manoeuvre.
-        val pace = ship.speed * Helm.paceThroughTurn(Helm.shortestTurn(ship.headingDeg, desired))
-        ship.headingDeg = Helm.turnToward(ship.headingDeg, desired, ship.turnRate * delta)
-        val hx = MathUtils.cosDeg(ship.headingDeg)
-        val hy = MathUtils.sinDeg(ship.headingDeg)
-        val step = pace * delta
-        if (nudgeIfWater(ship, hx * step, hy * step)) return true
-        // Mid-turn the heading can point at a shore that the straight line to the waypoint
-        // clears. Take the direct step rather than stall against the beach.
-        if (nudgeIfWater(ship, dirX * step, dirY * step)) return true
-
-        // Both blocked, which before gradual turning could not happen: heading used to be
-        // assigned outright, so a ship always pointed wherever it was going. Now a hull whose bow
-        // is towards the shore keeps that bow for a second or two - long enough that, with only
-        // those two attempts, it pinned itself to the beach, asked for a new route every frame,
-        // and never moved again. Half the fleet spent a session parked along coastlines this way.
-        //
-        // So try a fan either side of where it wants to go. Any of these is a legitimate way to
-        // work off a lee shore, and the helm above has already turned the bow this frame, so the
-        // ship is genuinely coming round while it does it.
-        for (offset in SHORE_CLEARANCE_ANGLES) {
-            val heading = Vector2(dirX, dirY).rotateDeg(offset.toFloat())
-            if (nudgeIfWater(ship, heading.x * step, heading.y * step)) return true
-        }
-        return false
-    }
+    private fun steer(ship: AiShip, dirX: Float, dirY: Float, delta: Float): Boolean =
+        Pilot.steer(ship, dirX, dirY, delta, worldMap::isWater)
 
     /** Moves the ship if the destination is sea; reports whether it did. */
     private fun nudgeIfWater(ship: AiShip, dx: Float, dy: Float): Boolean {
@@ -2687,6 +2730,37 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
         val ny = dy / dist
         // Plain hull speed: a ship cannot sail faster than it sails because it is frightened.
         return steer(ship, nx, ny, delta)
+    }
+
+    /**
+     * A hull that could not move at all this tick.
+     *
+     * It used to call retargetAiShip, which picks a *new* destination - so one blocked frame was
+     * enough to make a trader abandon the port it was bound for, and a warship flip its leg from
+     * outward to homeward and back again (the leg turns over on every destination chosen). A
+     * blocked ship has not changed its mind about where it is going; it only needs a different
+     * way there. Re-lay the course to the same place, and only pick somewhere new if there is
+     * genuinely no route to the old one.
+     *
+     * Rationed by [AiShip.retargetCooldown], because being blocked is a per-frame condition and
+     * laying a course is the most expensive thing this game does.
+     */
+    private fun breakFree(ship: AiShip) {
+        if (ship.retargetCooldown > 0f) return
+        ship.retargetCooldown = RETARGET_RETRY_SECONDS
+        if (!relayRoute(ship)) retargetAiShip(ship)
+    }
+
+    /** Lays a fresh course to where this ship was already bound. Reports whether it got one. */
+    private fun relayRoute(ship: AiShip): Boolean {
+        val destination = ship.destination ?: return false
+        if (destination.dst(ship.position) <= AI_SHIP_ARRIVE_THRESHOLD) return false
+        val route = routeTo(ship.position, destination.cpy())
+        if (route.isNullOrEmpty()) return false
+        ship.path = route
+        ship.pathIndex = 0
+        ship.routeRelays++
+        return true
     }
 
     /** Single-port factions (France, Netherlands) would otherwise have nowhere else to "patrol"
@@ -2730,6 +2804,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             routeTo(ship.position, quarry.position.cpy())?.let { route ->
                 ship.path = route
                 ship.pathIndex = 0
+                ship.destination = quarry.position.cpy()
+                ship.routeRelays++
             }
             return
         }
@@ -2740,6 +2816,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             routeTo(ship.position, forced)?.let { route ->
                 ship.path = route
                 ship.pathIndex = 0
+                ship.destination = forced.cpy()
+                ship.routeRelays++
             }
             return
         }
@@ -2782,6 +2860,8 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 } else {
                     ship.path = newPath
                     ship.pathIndex = 0
+                    ship.destination = destination.cpy()
+                    ship.routeRelays++
                     if (ship.role == AiShipRole.MILITARY) ship.outbound = !ship.outbound
                     return
                 }
@@ -3103,9 +3183,9 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
     }
 
     private fun checkAiEncounters() {
-        // A wrecked ship (see ShipTypes.WRECK) can't fight - 0 damage would just be a stalemate
+        // The ship's boat (see ShipTypes.LONGBOAT) cannot fight - 0 damage is just a stalemate
         // or a guaranteed loss - so nothing ever engages it; it only exists to limp to a port.
-        if (player.ship == ShipTypes.WRECK) return
+        if (!player.ship.attackable) return
         if (isNearAnyPort(shipPosition)) return
         val myTier = shipTier(player.ship)
         for (ship in aiShips) {
@@ -3265,14 +3345,22 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 respawnReplacement(target)
             }
             CombatOutcome.DEFEAT -> {
-                // Losing a fight is total: every coin and every unit of cargo on the ship is
-                // gone (anything already tucked away in a port warehouse is untouched), and the
-                // ship itself is wrecked down to ShipTypes.WRECK - just enough to reach a port,
-                // never a fight. Full hull on the wreck so that "reach a port" is always possible.
-                player.wreckShip()
+                // Losing a fight is total: the hull, every unit of cargo and every coin aboard
+                // are gone (anything already tucked away in a port warehouse is untouched), and
+                // what is left is ShipTypes.LONGBOAT - no hold, no guns, just enough to reach a
+                // harbour. Full hull on the boat, so that "reach a harbour" is always possible.
+                player.castAdrift()
+                // They have what they came for and they leave. Without this the victor is still
+                // carrying its orders to hunt the player down, and spends the next minute circling
+                // the boat it just emptied.
+                if (target != null) {
+                    abandonPursuit(target)
+                    target.giveUpCooldown = GIVE_UP_COOLDOWN_CAUTIOUS
+                }
                 eventToastUI.show(
-                    "Defeated! Your ship is wrecked, your cargo and gold are lost. " +
-                        "You limp away in a battered wreck - just enough to reach a port.",
+                    "Defeated! They take your ship, your cargo and every coin aboard, and leave " +
+                        "you adrift in the ship's boat. It has no hold and no guns - make harbour, " +
+                        "and start again.",
                     IconFactory.castaway
                 )
             }
@@ -3676,7 +3764,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
                 width / 2f, height / 2f,
                 width, height,
                 1f, 1f,
-                heading - 90f,
+                heading - 90f + ownedShip.shipType.spriteRotationDeg,
                 0, 0, texture.width, texture.height,
                 false, false
             )
@@ -3726,7 +3814,7 @@ class PortRoyaleGame(private val version: String = "dev") : ApplicationAdapter()
             width / 2f, height / 2f,
             width, height,
             1f, 1f,
-            shipHeadingDeg - 90f,
+            shipHeadingDeg - 90f + shipType.spriteRotationDeg,
             0, 0, texture.width, texture.height,
             false, false
         )

@@ -70,18 +70,34 @@ class ShipTypesTest {
 
     @Test
     fun `a wreck cannot be bought from the shipyard`() {
-        assertFalse(ShipTypes.ALL.contains(ShipTypes.WRECK))
+        assertFalse(ShipTypes.ALL.contains(ShipTypes.LONGBOAT))
     }
 
     @Test
     fun `a wreck can limp home but cannot fight`() {
-        assertEquals(0, ShipTypes.WRECK.minDamage)
-        assertEquals(0, ShipTypes.WRECK.maxDamage)
-        assertTrue(ShipTypes.WRECK.speed > 0f, "a wreck must still be able to reach a port")
-        assertTrue(ShipTypes.WRECK.maxHull > 0)
-        assertTrue(ShipTypes.WRECK.speed < ShipTypes.ALL.minOf { it.speed }, "a wreck is the slowest thing afloat")
+        assertEquals(0, ShipTypes.LONGBOAT.minDamage)
+        assertEquals(0, ShipTypes.LONGBOAT.maxDamage)
+        assertTrue(ShipTypes.LONGBOAT.speed > 0f, "the boat must still be able to reach a port")
+        assertFalse(
+            ShipTypes.LONGBOAT.attackable,
+            "nothing attacks a man already in his boat - that is a dead end, not danger"
+        )
         assertTrue(
-            ShipTypes.WRECK.cargoCapacity < ShipTypes.ALL.minOf { it.cargoCapacity },
+            ShipTypes.ALL.all { it.attackable },
+            "every hull that can be bought can be fought"
+        )
+        assertEquals(
+            0,
+            ShipTypes.LONGBOAT.cargoCapacity,
+            "the ship's boat has no hold - nothing can be carried and nothing traded"
+        )
+        assertTrue(ShipTypes.LONGBOAT.maxHull > 0)
+        assertTrue(
+            ShipTypes.LONGBOAT.speed < ShipTypes.ALL.minOf { it.speed },
+            "the boat is the slowest thing afloat"
+        )
+        assertTrue(
+            ShipTypes.LONGBOAT.cargoCapacity < ShipTypes.ALL.minOf { it.cargoCapacity },
             "a wreck holds less than any real ship"
         )
     }

@@ -13,7 +13,32 @@ data class ShipType(
     val maxHull: Int,
     val minDamage: Int,
     val maxDamage: Int,
-    val baseManeuverability: Int
+    val baseManeuverability: Int,
+    /**
+     * Whether anything in the world will attack a ship of this class at all.
+     *
+     * A property of the class rather than a comparison made at each place that needed it, and
+     * that is the fix for a real bug: "nothing attacks the ship's boat" had been written twice,
+     * once where a pursuit *begins* and once where combat *starts*, and the first of those only
+     * ran while a ship was not already pursuing. So a pirate chasing the player at the moment
+     * they lost kept its orders, closed to firing range, found no fight waiting - and simply
+     * orbited the boat until its own give-up timer ran out. One rule in one place cannot be
+     * half-applied that way.
+     */
+    val attackable: Boolean = true,
+    /**
+     * Extra degrees to turn the artwork by when drawing it, for a sprite whose bow does not
+     * point up the image.
+     *
+     * Every hull in the ship set is drawn bow-up, and the renderer leans on that: it rotates a
+     * sprite by the heading less ninety degrees and nothing else. The ship's boat comes from a
+     * different, older set and is drawn bow-*down*, so it sailed stern first - measurably, not
+     * arguably: the narrow end of the artwork is at the bottom of the image where every ship has
+     * it at the top. Recording the orientation per class is the honest fix; mirroring the texture
+     * would reverse an asymmetric hull, and repainting a CC0 asset to suit the renderer puts the
+     * knowledge somewhere no one will find it again.
+     */
+    val spriteRotationDeg: Float = 0f
 )
 
 /**
@@ -91,22 +116,34 @@ object ShipTypes {
 
     val ALL = listOf(SLOOP, CUTTER, BARQUE, BRIGANTINE, GALLEON)
 
-    /** What's left after a defeat at sea (see PortRoyaleGame.finishCombat) - barely afloat, no
-     *  fighting capability, just enough to limp to the nearest port. Deliberately NOT in [ALL]
-     *  so it can never be bought from the shipyard; reuses the Sloop's sprite (smallest hull
-     *  already in the game) rather than a bespoke dismasted-hull asset. AI ships are told never
-     *  to engage a player sailing this. */
-    val WRECK = ShipType(
-        name = "Wreck",
-        spritePath = "sprites/ships/ship2_white_1.png",
-        spriteScale = 0.9f,
+    /**
+     * What a lost battle leaves: the ship's boat, and the clothes you stand up in.
+     *
+     * Not a damaged ship - a different thing altogether. No hold, so nothing can be carried and
+     * nothing can be traded; no guns; the slowest thing afloat. The pirates take the ship, the
+     * cargo and every coin in your purse and sail away, and what is left is just enough to reach
+     * a harbour, where a hull and everything in it has to be bought again.
+     *
+     * Deliberately NOT in [ALL], so it can never be bought from a shipyard - and no NPC will
+     * attack a player sailing it, because sinking a man already in his boat is not danger, it is
+     * a dead end. This is the bottom of a game and it is meant to be reachable: the player should
+     * fall into it once and learn that the game does not end there.
+     */
+    val LONGBOAT = ShipType(
+        name = "Longboat",
+        spritePath = "sprites/ships/dinghyLarge1.png",
+        // Half the beam of the smallest ship in the game: on the map it has to read as a boat
+        // among ships at a glance, with no label needed.
+        spriteScale = 0.5f,
         tint = Color.WHITE,
         price = 0,
-        cargoCapacity = 5,
+        cargoCapacity = 0,
         speed = 5f,
         maxHull = 30,
         minDamage = 0,
         maxDamage = 0,
-        baseManeuverability = 20
+        baseManeuverability = 20,
+        attackable = false,
+        spriteRotationDeg = 180f
     )
 }
