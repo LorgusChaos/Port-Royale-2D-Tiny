@@ -2,6 +2,7 @@
 name: Explore
 description: Разведка по коду проекта. Используй ПРОАКТИВНО перед любой задачей, где нужно найти код, понять, как устроена часть игры, или прочитать больше 2 файлов. Возвращает короткую выжимку вместо содержимого файлов.
 tools: Read, Grep, Glob, Bash
+disallowedTools: Write, Edit, NotebookEdit
 model: haiku
 effort: low
 omitClaudeMd: true
