@@ -68,7 +68,7 @@ splits them so review attention goes where it's expensive.
 
 ## Testing discipline
 
-0. **Run `:core:test` after every change, without being asked.** ~458 JUnit 5 tests live in
+0. **Run `:core:test` after every change, without being asked.** 471 JUnit 5 tests live in
    `core/src/test/kotlin`, mirroring the main package layout. They cover the pure logic only —
    economy (Market/MarketState/Player/Warehouse/Loan), ships (condition, upgrades, effective
    stats), combat (CombatState, FleetCombatResolver), fleet (Captain, FleetSimulation), world
