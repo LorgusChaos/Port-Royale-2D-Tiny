@@ -3,6 +3,14 @@
 Kotlin/libGDX (LWJGL3 desktop), Gradle multi-module: `core` (game logic) + `lwjgl3` (launcher).
 Windows-first. Current version: see `gradle.properties` (`appVersion`).
 
+## Экономия контекста
+
+- Перед изучением кода (поиск, больше 2 файлов, «как это устроено») делегируй сабагенту `Explore`, а не читай файлы сам.
+- Сборку и тесты запускай через сабагента `build-runner`. Полный лог Gradle сам не читай.
+- Рутинные правки по точному плану (однотипные изменения, шаблонный код, переименования) отдавай `implementer`, потом проверь diff и собери через `build-runner`. Игровую логику и архитектуру делай сам.
+- Сам открывай только те файлы, которые собираешься менять.
+- Если задача разрослась (много шагов, большой контекст), предложи пользователю: `/handoff` → `/clear` → `/resume`.
+
 ## Build / run
 
 ```
@@ -87,48 +95,9 @@ splits them so review attention goes where it's expensive.
    cycle where feasible, instead of one full rebuild-and-relaunch round trip per tiny change.
 7. New game logic ships with tests in the same change. New *rendering* code does not — see 0.
 
-### Writing tests here: three traps
-
-- **`MarketState`, `GameClock` and `GameSpeed` are singletons with process-wide mutable state.**
-  Any test class that touches a price, a date or the speed multiplier needs a `@BeforeTest` that
-  calls `.reset()`, or trades from one test leak into another's prices and the failure looks like
-  a logic bug in whichever test happened to run second.
-- **Combat rolls the shared `kotlin.random.Random`, which can't be seeded.** Don't assert on a
-  single roll. Either rig the opponent so only one outcome is reachable (a 0-damage enemy can
-  never win; a 100000-hull enemy can never lose; a captain starting below its caution threshold
-  can never fire, since hull only falls), or size the sample so the assertion sits ~8 standard
-  errors from the boundary. `CombatStateTest` and `FleetCombatResolverTest` show both.
-- **`Captain.rollCandidate()` randomizes `tradeSense`**, which moves every price that captain
-  pays or receives. Build captains by hand (`Captain(name, tradeSense = 0f, caution = …)`) in any
-  test that asserts on gold or cargo.
-
-`Pixmap` (and so `WorldMap`) needs libGDX natives but no GL context — `GdxNativesLoader.load()`
-in a `@BeforeTest` is enough, hence `gdx-platform:natives-desktop` as a `testRuntimeOnly` dep.
-`PortReachabilityTest` loads the *real* map PNG this way (plain `File.readBytes()` →
-`Pixmap(bytes, …)`, since `Gdx.files` needs a backend).
-
-### Sailing the real map in a test — do this instead of reasoning about movement
-
-`Pilot` (`core/.../world/Pilot.kt`) holds the one piece of seamanship every hull shares: follow a
-route, don't run aground. It needs nothing of a ship but `position`/`headingDeg`/`speed`/
-`turnRate`/`path`/`pathIndex` (the `Pilot.Hull` interface — `AiShip` satisfies it as it stands),
-and takes `isWater` as a lambda. So `PilotTest` sails real hulls across the real Caribbean with
-no window, at several tick lengths, and asserts they arrive.
-
-**Movement bugs are geometry, and guessing at them from a session log wastes hours.** Three real
-faults were found this way, each invisible to the old constant-vs-constant tests:
-
-- the arrival radius (16) was *smaller than every hull's turning circle* (21–27), so a waypoint
-  off the bow could not be reached at all and ships orbited it at full speed — displacing nothing,
-  which is what the watchdog was reporting;
-- movement tested only the far end of a step, so a hull slipped diagonally between two corners of
-  land — the one move A* explicitly refuses to plan;
-- a tick is not a fixed length (real frame time × game speed), so at 10 fps on 20x a passage took
-  1.8× longer than at 60 fps. `Pilot` therefore sails a tick in slices of at most half a cell and
-  re-checks the waypoint each slice, which makes a long tick equal several short ones.
-
-Write the failing voyage first. If a movement test passes before the fix, the diagnosis is wrong —
-that happened here, and it stopped a plausible-but-wrong fix from shipping.
+Three traps specific to this codebase, and how to sail the real map inside a test
+instead of reasoning about movement: [docs/testing.md](docs/testing.md). Read it before
+writing a test.
 
 ## Diagnostics — use these before reading code to guess
 
@@ -155,86 +124,18 @@ and plotting game days puts every threshold out by a factor of 144.
 
 ## Artwork
 
-Any new or replaced picture goes through the `art` skill (`.claude/skills/art/SKILL.md`, also
-`/art`), even a one-off. In short:
-
-- Sources and mockups in `art-src/`, never in `assets/` (that folder ships inside the jar).
-- Sprites are produced by `tools/art/art.py` (`slice` a sheet, `bleed` a single cut-out,
-  `uncheck` a generator's checkerboard baked into one, `key` a flat background colour out,
-  `preview` edges) — never cropped or cleaned by hand. Python deps: `tools/art/requirements.txt`.
-- `key --shade N` also clears pixels that are a *darkened* version of the key colour, matched by
-  hue rather than distance. Generators paint an object's contact shadow in the background's own
-  colour — magenta at (121,4,121) — which by distance sits exactly where the real art begins, so
-  no threshold separates them. 24 is the working value; at 40+ it starts eating dark wood.
-- HUD elements are cut with
-  `art.py key <file> --colour FF00FF --tolerance 100 --soft 30 --spill 4 --shade 24`. The
-  tolerance of 100 comes from the measured histogram: background sits under 20, the painted
-  magenta glow trails off to ~120, real art starts past 130.
-- `key` is global by default (it reaches holes a flood fill cannot, which is why props are
-  generated on magenta). Add `--flood` when the key colour also occurs *inside* the art — the four
-  port frames were painted on black and have black shadows, and keying those punched holes
-  through the picture. With `--flood` only background the border can reach is cut.
-- The port-window frames (`assets/sprites/ui/port_*_frame.png`) are cut this way:
-  `art.py key <file> --colour 000000 --tolerance 12 --soft 24 --spill 0 --flood`. The tolerance is
-  narrow on purpose: the real background is within 5 of black, painted shadow is 20–60, and at
-  the default 60 the flood walks through the shadows and shreds the stalls.
-- Painted art is drawn with mipmaps + Linear filtering, which only looks right if the RGB under
-  transparent pixels matches the edge (`bleed`); otherwise every sprite gets a white or black rim.
-  Ships load through `ui/ShipArt.kt`, icons through `IconFactory.buildArtIcon` — never a bare
-  `Texture(Gdx.files.internal(...))`, which gets Nearest and no mipmaps.
-- `AssetIntegrityTest` (part of `:core:test`) fails on missing paths, opaque backgrounds, unbled
-  edges, a painted transparency checkerboard left in a sprite, and source files in `assets/`.
-- Shot mode, for looking at a screen without a person at the keyboard:
-  ```
-  ./gradlew.bat -q :lwjgl3:run --args="--shot=market --shot-port=Havana --shot-seed=1"
-  ```
-  Screens: menu, sea, hub, market, shipyard, status, fortress, warehouse, tavern, docks. Also
-  `--shot-out=<png>` (default `lwjgl3/build/shots/<screen>.png`, relative to `lwjgl3/`),
-  `--shot-frames=<n>` (30), `--shot-size=<w>x<h>` (1280x720). It prints `SHOT <path>` and exits;
-  it always starts a new game (never a save) and writes no session log. Parsing lives in
-  `diagnostics/ShotRequest.kt`, staging in `PortRoyaleGame.stageShot`.
+Any new or replaced picture goes through the `art` skill (`.claude/skills/art/SKILL.md`,
+also `/art`), even a one-off. The pipeline, the measured chroma-key recipes, the
+mipmap/bleed rule and the shot mode: [docs/artwork.md](docs/artwork.md).
 
 ## Release workflow
 
-When cutting a version bump (`vX.Y` or `vX.Y.Z`), touch exactly these:
-- `Reference/` — run `./gradlew.bat :core:reference` first, and commit it if the tables moved.
-  This is the one place the reference is kept honest; nothing fails a build if it is stale.
-- `CHANGELOG.md` — new version section (Added/Changed/Fixed)
-- `README.md` — status line, feature list, roadmap checkbox, credits if assets changed
-- `gradle.properties` — `appVersion`
-- `lwjgl3/src/main/kotlin/com/portroyale/tiny/lwjgl3/Lwjgl3Launcher.kt` — window title
-
-Then: compile check → `:core:test` → `git add` specific files (never `-A`; `core/bin/` and
-`lwjgl3/bin/` are untracked IDE build output, not meant to be committed) → commit → push `main`.
-Only do this when the user explicitly asks to release/push a version.
-
-**Do not create the tag by hand.** CI (`.github/workflows/release.yml`) reacts to `appVersion`
-changing on `main`: it reruns the tests, builds the Windows exe with `jpackage`, creates the
-`vX.Y.Z` tag itself and publishes the release (portable zip + shadow jar), taking the release
-notes from this version's `CHANGELOG.md` section. A hand-made tag is at best redundant and at
-worst points at a different commit than the artifacts, which CI then refuses to publish.
+What to touch for a version bump, in what order, and why the tag is CI's to create and
+not yours: [docs/release.md](docs/release.md). Only when the user explicitly asks to
+release a version.
 
 ## Architecture gotchas worth knowing before touching rendering code
 
-- **ShapeRenderer's `projectionMatrix` is mutable, persistent state.** Any `shapeRenderer.begin()`
-  must have `.projectionMatrix` explicitly (re)set immediately before it, every time — it silently
-  leaks whatever the last draw call set (e.g. the minimap camera) into unrelated draw calls
-  otherwise. This has regressed more than once; don't remove that line during refactors.
-- **Constant on-screen size regardless of camera zoom**: `worldUnitsPerScreenPixel()` in
-  `PortRoyaleGame.kt` (`camera.viewportWidth * camera.zoom / viewport.screenWidth`) converts a
-  target screen-pixel size to the world-space size needed to render at that size at any zoom.
-  Multiplying a *world-unit* constant by `camera.zoom` directly does NOT give a sane result -  it
-  only keeps the size *consistent*, not *reasonably sized*, since the result depends on whatever
-  zoom level the base constant happened to be eyeballed at.
-- **`UiScale`** (`core/.../ui/UiScale.kt`) drives all Scene2D screens' text/button size, scaled to
-  the actual window width (clamped) so the default 1280x720 launch still fits. Every screen's
-  `resize()` must call `UiScale.applyResize(stage, width, height)`, not
-  `stage.viewport.update(...)` directly.
-- **`UiSkinFactory.generateFont()`** is the one place the UI font (Cormorant Garamond, a variable
-  TTF) is generated — it fakes bold via a thin FreeType border (the font has no real bold
-  instance), and generates independent `BitmapFont` objects for anything outside the shared Skin
-  (e.g. map-space port labels), since `BitmapFontData.scale` is global mutable state shared by
-  every screen using the same font object.
-- `MapProjection.MAP_WIDTH/MAP_HEIGHT` and the pathfinding grid's `cellSize` (10f, in `WorldMap`)
-  are independent scales — arrive-thresholds and pathfinding constants are tied to the grid, not
-  to overall map size, and must NOT be scaled when the map's world-unit size changes.
+ShapeRenderer's leaking projection matrix, zoom-constant on-screen sizing, `UiScale`,
+the one place the UI font is generated, and the two independent map scales:
+[docs/rendering.md](docs/rendering.md). Read it before touching rendering code.

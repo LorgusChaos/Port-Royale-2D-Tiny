@@ -64,3 +64,9 @@ __pycache__/
 
 # --- art.py preview output (a look at sprite edges, not an asset) ---
 *_preview.png
+
+# --- Working notes that stay on this machine ---
+# The rest of the workshop (CLAUDE.md, .claude/, docs/) is in the repository. These two are not:
+# TOKEN_SAVING_SETUP.md is a one-off setup brief, and HANDOFF.md is state passed between chats.
+TOKEN_SAVING_SETUP.md
+docs/HANDOFF.md
