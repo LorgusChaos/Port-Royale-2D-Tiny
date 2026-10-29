@@ -1,14 +1,11 @@
 package com.portroyale.tiny.ui
 
 import com.badlogic.gdx.graphics.g2d.TextureRegion
-import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.scenes.scene2d.ui.Image
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Stack
 import com.badlogic.gdx.scenes.scene2d.ui.Table
-import com.badlogic.gdx.scenes.scene2d.ui.TextButton
-import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.utils.Align
 import com.portroyale.tiny.audio.AudioManager
@@ -20,22 +17,40 @@ import com.portroyale.tiny.factions.buyPriceMultiplier
 import com.portroyale.tiny.factions.sellPriceMultiplier
 import com.portroyale.tiny.world.Ports
 
+// Columns and row heights on the frame's design canvas. PortFrameArt.MARKET leaves 828x621 of
+// clear parchment between the stalls, and ten goods plus two header lines have to fit in it
+// without a scroll bar - no other screen here has one. 44 + 38 + 10x52 = 602 of the 621.
+private const val BUY_PRICE_COL = 92f
+private const val BUY_COL = 120f
+private const val ICON_COL = 46f
+private const val NAME_COL = 230f
+private const val SELL_PRICE_COL = 92f
+private const val SELL_COL = 120f
+private const val HOLD_COL = 78f
+private const val CELL_PAD = 4f
+private const val HEADER_H = 44f
+private const val CAPTION_H = 38f
+private const val ROW_H = 52f
+/** The painted Buy/Sell plates are 452x139, so their height follows from the column width - a
+ *  plate stretched to a taller cell would just look stretched. */
+private const val BUTTON_H = 36f
+private const val BUTTON_FONT_SCALE = 0.72f
+
 /** Goods market sub-screen: buy/sell one unit at a time. Price = port's historical bias x
  *  current supply/demand (MarketState) x buy/sell spread x reputation with the port's faction -
  *  buying nudges that good's stock down (price rises), selling nudges it up (price falls).
  *  Selling also takes a side: it raises standing with this port's faction and lowers it with the
- *  other three (see Player.recordSale); buying is neutral. Reached from PortHubUI; "Back"
- *  returns to the hub, not to open sea. */
+ *  other three (see Player.recordSale); buying is neutral. Drawn inside the market's own painted
+ *  shopfront ([PortFrameArt.MARKET]) - the nameplate carries the port and the purse, the
+ *  parchment carries the rows, and the frame's painted (X) returns to the hub. */
 class MarketUI(private val player: Player, private val onBack: () -> Unit) {
 
     val stage = Stage(UiScale.viewport())
 
     private val skin = UiSkinFactory.build()
-    private val root = Table()
-    private lateinit var titleLabel: Label
-    private lateinit var goldLabel: Label
-    private lateinit var cargoLabel: Label
-    private lateinit var reputationLabel: Label
+    private val frame = PortFrame(skin, PortFrameArt.MARKET) { leave() }
+
+    private lateinit var standingLabel: Label
     private val buyPriceLabels = mutableMapOf<Good, Label>()
     private val sellPriceLabels = mutableMapOf<Good, Label>()
     private val holdLabels = mutableMapOf<Good, Label>()
@@ -49,10 +64,9 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
     private val shortageDrawable = TextureRegionDrawable(TextureRegion(IconFactory.shortageFrame))
 
     init {
-        root.setFillParent(true)
-        root.center()
-        stage.addActor(root)
+        stage.addActor(frame.group)
         buildLayout()
+        layoutFrame()
     }
 
     fun open(portName: String) {
@@ -69,6 +83,7 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
 
     fun resize(width: Int, height: Int) {
         UiScale.applyResize(stage, width, height)
+        layoutFrame()
     }
 
     fun dispose() {
@@ -76,96 +91,83 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
         skin.dispose()
     }
 
+    private fun layoutFrame() = frame.layout(stage.viewport.worldWidth, stage.viewport.worldHeight)
+
+    private fun leave() {
+        AudioManager.playClick()
+        onBack()
+    }
+
     private fun buildLayout() {
         val panel = Table()
-        panel.background = skin.getDrawable("panel")
-        panel.pad(40f)
-
+        panel.top().left()
         val columns = 7
-        titleLabel = Label("", skin)
-        titleLabel.setFontScale(1.3f)
-        panel.add(titleLabel).colspan(columns).left().padBottom(12f).row()
-        goldLabel = Label("", skin)
-        panel.add(goldLabel).colspan(columns).left().row()
-        cargoLabel = Label("", skin)
-        panel.add(cargoLabel).colspan(columns).left().row()
-        reputationLabel = Label("", skin)
-        panel.add(reputationLabel).colspan(columns).left().padBottom(20f).row()
 
-        // Row layout mirrors the classic trading-game look: a boxed buy price on the left, the
-        // good's icon/name in the middle, a boxed sell price on the right - rather than one
-        // combined "buy Xg / sell Yg" sentence. Plain numbers (no currency letter) since the
-        // pill's position already tells you which price it is.
+        standingLabel = frame.bodyLabel()
+        panel.add(standingLabel).colspan(columns).height(HEADER_H).left().row()
+
+        // Captions on their own line rather than a currency letter in every cell: the old screen
+        // told buy from sell by which side of the row the price pill sat on, which stops working
+        // once both are plain text on parchment.
+        panel.add(caption("buy")).width(BUY_PRICE_COL + BUY_COL).colspan(2).height(CAPTION_H)
+        panel.add().colspan(2).width(ICON_COL + NAME_COL).height(CAPTION_H)
+        panel.add(caption("sell")).width(SELL_PRICE_COL + SELL_COL).colspan(2).height(CAPTION_H)
+        panel.add(caption("hold")).width(HOLD_COL).height(CAPTION_H).row()
+
         for (good in Good.entries) {
-            val buyPriceLabel = Label("", skin, "price")
-            buyPriceLabel.setAlignment(Align.center)
+            val buyPriceLabel = frame.bodyLabel(Align.center)
             buyPriceLabels[good] = buyPriceLabel
+            panel.add(buyPriceLabel).width(BUY_PRICE_COL).height(ROW_H)
 
-            val buyButton = TextButton("Buy", skin)
-            buyButton.addListener(object : ClickListener() {
-                override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                    val price = buyPrice(good)
-                    if (player.canBuy(price)) {
-                        player.buy(good, price)
-                        MarketState.onBuy(currentPort, good)
-                        // Buying takes no side and so moves no reputation - see Player.recordSale.
-                        AudioManager.playCoins()
-                        refresh()
-                    }
+            val buyButton = frame.plateButton("Buy", "button_buy", BUTTON_FONT_SCALE) {
+                val price = buyPrice(good)
+                if (player.canBuy(price)) {
+                    player.buy(good, price)
+                    MarketState.onBuy(currentPort, good)
+                    // Buying takes no side and so moves no reputation - see Player.recordSale.
+                    AudioManager.playCoins()
+                    refresh()
                 }
-            })
+            }
+            panel.add(buyButton).width(BUY_COL - CELL_PAD).height(BUTTON_H).padRight(CELL_PAD)
 
             // A surplus/shortage frame sits behind the icon (same visual language as the map),
             // toggled per-refresh via notabilityFrames rather than swapping the icon Image itself.
             val icon = Image(TextureRegionDrawable(TextureRegion(IconFactory.iconFor(good))))
-            val frame = Image()
-            notabilityFrames[good] = frame
+            val notability = Image()
+            notabilityFrames[good] = notability
             val iconInset = Table()
-            iconInset.add(icon).size(28f, 28f)
-            val iconStack = Stack(frame, iconInset)
+            iconInset.add(icon).size(ICON_COL - CELL_PAD * 2)
+            panel.add(Stack(notability, iconInset)).size(ICON_COL).height(ROW_H)
 
-            val sellPriceLabel = Label("", skin, "price")
-            sellPriceLabel.setAlignment(Align.center)
+            panel.add(frame.bodyLabel().apply { setText(good.displayName) })
+                .width(NAME_COL).height(ROW_H).left()
+
+            val sellPriceLabel = frame.bodyLabel(Align.center)
             sellPriceLabels[good] = sellPriceLabel
+            panel.add(sellPriceLabel).width(SELL_PRICE_COL).height(ROW_H)
 
-            val sellButton = TextButton("Sell", skin)
-            sellButton.addListener(object : ClickListener() {
-                override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                    val price = sellPrice(good)
-                    if (player.canSell(good)) {
-                        player.sell(good, price)
-                        MarketState.onSell(currentPort, good)
-                        player.recordSale(portFaction, price)
-                        AudioManager.playCoins()
-                        refresh()
-                    }
+            val sellButton = frame.plateButton("Sell", "button_sell", BUTTON_FONT_SCALE) {
+                val price = sellPrice(good)
+                if (player.canSell(good)) {
+                    player.sell(good, price)
+                    MarketState.onSell(currentPort, good)
+                    player.recordSale(portFaction, price)
+                    AudioManager.playCoins()
+                    refresh()
                 }
-            })
+            }
+            panel.add(sellButton).width(SELL_COL - CELL_PAD).height(BUTTON_H).padRight(CELL_PAD)
 
-            val holdLabel = Label("", skin)
+            val holdLabel = frame.bodyLabel(Align.center)
             holdLabels[good] = holdLabel
-
-            panel.add(buyPriceLabel).width(64f).pad(4f)
-            panel.add(buyButton).width(64f).pad(4f)
-            panel.add(iconStack).size(40f, 40f).pad(4f)
-            panel.add(Label(good.displayName, skin)).left().width(90f).pad(4f)
-            panel.add(sellPriceLabel).width(64f).pad(4f)
-            panel.add(sellButton).width(64f).pad(4f)
-            panel.add(holdLabel).width(50f).pad(4f)
-            panel.row()
+            panel.add(holdLabel).width(HOLD_COL).height(ROW_H).row()
         }
 
-        val backButton = TextButton("Back", skin)
-        backButton.addListener(object : ClickListener() {
-            override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                AudioManager.playClick()
-                onBack()
-            }
-        })
-        panel.add(backButton).colspan(columns).left().width(140f).padTop(20f)
-
-        root.add(panel)
+        frame.content.add(panel).grow()
     }
+
+    private fun caption(text: String) = frame.bodyLabel(Align.center).apply { setText(text) }
 
     private fun buyPrice(good: Good): Int {
         val base = MarketState.buyPrice(currentPort, good)
@@ -182,22 +184,22 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
     }
 
     private fun refresh() {
-        titleLabel.setText("$currentPort - Market")
-        goldLabel.setText("Gold: ${player.gold}")
-        cargoLabel.setText("Cargo hold: ${player.cargoUsed} / ${player.cargoCapacity}  (${player.ship.name})")
+        frame.setTitle("Market")
+        frame.setStatus(currentPort, player.gold, player.cargoUsed to player.cargoCapacity)
         val faction = portFaction
-        reputationLabel.setText(
+        standingLabel.setText(
             if (faction != null) {
-                "${faction.displayName} standing: ${player.reputationTier(faction).label} (${player.reputation[faction]})"
+                "${faction.displayName} standing: ${player.reputationTier(faction).label} " +
+                    "(${player.reputation[faction]})   -   ${player.ship.name}"
             } else {
-                ""
+                player.ship.name
             }
         )
         for (good in Good.entries) {
             buyPriceLabels.getValue(good).setText(buyPrice(good).toString())
             sellPriceLabels.getValue(good).setText(sellPrice(good).toString())
             val held = player.cargo[good] ?: 0
-            holdLabels.getValue(good).setText("×$held")
+            holdLabels.getValue(good).setText("x$held")
             notabilityFrames.getValue(good).drawable = when (MarketState.notability(currentPort, good)) {
                 true -> surplusDrawable
                 false -> shortageDrawable

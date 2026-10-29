@@ -61,3 +61,6 @@ map-style-preview/
 
 # --- Python bytecode (tools/art) ---
 __pycache__/
+
+# --- art.py preview output (a look at sprite edges, not an asset) ---
+*_preview.png

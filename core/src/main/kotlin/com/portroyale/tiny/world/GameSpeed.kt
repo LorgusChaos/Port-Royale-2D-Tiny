@@ -12,7 +12,15 @@ object GameSpeed {
     var stepIndex = 0
         private set
 
+    /** Held separately from the ladder rather than as a zeroth step, so that un-pausing returns
+     *  the player to the speed they were running at instead of dropping them back to 1x. */
+    var paused = false
+
+    /** What the player chose - this is what the HUD shows, pause or no pause. */
     val multiplier: Float get() = STEPS[stepIndex]
+
+    /** What the world actually advances by this frame. */
+    val worldMultiplier: Float get() = if (paused) 0f else multiplier
 
     fun cycle() {
         stepIndex = (stepIndex + 1) % STEPS.size
@@ -20,5 +28,6 @@ object GameSpeed {
 
     fun reset() {
         stepIndex = 0
+        paused = false
     }
 }

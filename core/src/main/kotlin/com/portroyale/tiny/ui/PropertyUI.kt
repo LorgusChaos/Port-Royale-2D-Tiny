@@ -2,6 +2,9 @@ package com.portroyale.tiny.ui
 
 import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
+import com.badlogic.gdx.scenes.scene2d.ui.Image
+import com.badlogic.gdx.graphics.g2d.TextureRegion
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
@@ -86,7 +89,11 @@ class PropertyUI(private val player: Player, private val onBack: () -> Unit) {
             listPanel.add(nameLabel).left().padTop(8f).row()
 
             if (warehouse.gold > 0) {
-                listPanel.add(Label("  Gold: ${warehouse.gold}", skin)).left().row()
+                val goldRow = Table()
+                goldRow.add(Image(TextureRegionDrawable(TextureRegion(IconFactory.coin))))
+                    .size(28f, 22f).padLeft(12f).padRight(6f)
+                goldRow.add(Label(warehouse.gold.toString(), skin))
+                listPanel.add(goldRow).left().row()
             }
             for ((good, qty) in warehouse.goods) {
                 if (qty > 0) {

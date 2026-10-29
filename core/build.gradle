@@ -30,12 +30,31 @@ test {
     // because what the right numbers ARE is exactly what M15 has to decide. Excluded here and
     // run on demand through the `simulate` task below.
     useJUnitPlatform {
-        excludeTags 'simulation'
+        excludeTags 'simulation', 'reference'
     }
     testLogging {
         events "failed"
         exceptionFormat "full"
     }
+}
+
+// ./gradlew.bat :core:reference - rewrites the generated tables in Reference/ from the code they
+// describe (ship stats, goods, reputation, warehouses, loans, captains). Tagged `reference` and
+// excluded from `test` above, so an ordinary test run never touches files on disk. Run it as part
+// of a version bump; see Reference/README.md.
+tasks.register('reference', Test) {
+    group = 'documentation'
+    description = 'Regenerates the numeric tables in Reference/ from the code.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'reference'
+    }
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat "full"
+    }
+    outputs.upToDateWhen { false }
 }
 
 // ./gradlew.bat :core:simulate - runs the economy headless for a few hundred game days and prints

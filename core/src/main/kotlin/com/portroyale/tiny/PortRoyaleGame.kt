@@ -16,6 +16,7 @@ import com.badlogic.gdx.graphics.g2d.GlyphLayout
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.MathUtils
+import com.badlogic.gdx.math.Rectangle
 import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.utils.viewport.FitViewport
@@ -60,12 +61,15 @@ import com.portroyale.tiny.ui.CombatUI
 import com.portroyale.tiny.ui.EventToastUI
 import com.portroyale.tiny.ui.FleetDockUI
 import com.portroyale.tiny.ui.FortressUI
+import com.portroyale.tiny.ui.HudArt
 import com.portroyale.tiny.ui.HudOverlayUI
+import com.portroyale.tiny.ui.ShipStatus
 import com.portroyale.tiny.ui.IconFactory
 import com.portroyale.tiny.ui.LoadGameUI
 import com.portroyale.tiny.ui.MainMenuUI
 import com.portroyale.tiny.ui.MarketUI
 import com.portroyale.tiny.ui.NewGameUI
+import com.portroyale.tiny.ui.PortFrame
 import com.portroyale.tiny.ui.PortHubUI
 import com.portroyale.tiny.ui.PropertyUI
 import com.portroyale.tiny.ui.SaveGameUI
@@ -112,7 +116,6 @@ private const val TOOLTIP_GAP_TARGET_PX = 6f
 private const val MARKET_ICON_LABEL_GAP_TARGET_PX = 5f
 private const val PORT_LABEL_OFFSET_X = 18f
 private const val PORT_LABEL_OFFSET_Y = 8f
-private const val MINIMAP_BORDER_WIDTH = 4f
 private const val MARKET_ICON_DIM_ALPHA = 0.35f
 private const val DOCKED_GLOW_MIN_SIZE = 50f
 private const val DOCKED_GLOW_MAX_SIZE = 90f
@@ -328,7 +331,16 @@ private val BOTTLE_MESSAGES = listOf(
 )
 private const val REJECTED_CLICK_MARKER_DURATION = 0.8f
 private const val REJECTED_CLICK_MARKER_SIZE = 20f
-private const val MIN_ZOOM = 0.075f
+/** One step further in than this used to exist; it put the camera closer than the art is drawn
+ *  for. The ladder is now a whole number of ZOOM_STEPs, with no short final step onto a clamp. */
+/** Ship markers on the chart, in minimap pixels. Big enough to find at a glance, small enough
+ *  that a fleet of them does not cover the islands they are sailing between. */
+private const val MINIMAP_DOT_RADIUS_PX = 3.2f
+private val MINIMAP_DOT_RIM = Color.valueOf("1A120A")
+private val MINIMAP_PLAYER_DOT: Color = Color.valueOf("E03A2F")
+private val MINIMAP_FLEET_DOT: Color = Color.valueOf("E88A1E")
+
+private const val MIN_ZOOM = 0.1f
 private const val MAX_ZOOM = 1f
 private const val ZOOM_STEP = 0.1f
 
@@ -339,9 +351,6 @@ private const val ZOOM_STEP = 0.1f
 private const val JUMP_TO_SHIP_ZOOM = MAX_ZOOM - 0.9f * (MAX_ZOOM - MIN_ZOOM)
 private const val EDGE_PAN_MARGIN = 40f
 private const val PAN_SPEED = 1800f
-private const val MINIMAP_WIDTH = 240f
-private const val MINIMAP_HEIGHT = 161f
-private const val MINIMAP_MARGIN = 16f
 
 private enum class NavMode { MANUAL, AUTOPILOT }
 private enum class GameMode { SAILING, IN_PORT, COMBAT }
@@ -395,6 +404,7 @@ class PortRoyaleGame(
     private lateinit var settingsUI: SettingsUI
     private lateinit var eventToastUI: EventToastUI
     private lateinit var hudOverlayUI: HudOverlayUI
+    private val minimapMapRect = Rectangle()
     private lateinit var propertyUI: PropertyUI
     private var propertyOpen = false
     private lateinit var captainStatusUI: CaptainStatusUI
@@ -601,7 +611,12 @@ class PortRoyaleGame(
         eventToastUI = EventToastUI()
         propertyUI = PropertyUI(player, onBack = ::closeProperty)
         captainStatusUI = CaptainStatusUI(player, onBack = ::closeCaptainStatus)
-        hudOverlayUI = HudOverlayUI(onOpenProperty = ::openProperty, onJumpToCaptain = ::jumpToCaptain, onCycleGameSpeed = GameSpeed::cycle)
+        hudOverlayUI = HudOverlayUI(
+            onOpenProperty = ::openProperty,
+            onCycleGameSpeed = GameSpeed::cycle,
+            onTogglePause = { paused -> GameSpeed.paused = paused },
+            onMinimapClick = ::jumpToMinimapPoint,
+        )
         sailingWithToastInputProcessor = InputMultiplexer(eventToastUI.stage, hudOverlayUI.stage, sailingInputProcessor)
 
         val settings = SettingsManager.load()
@@ -678,6 +693,13 @@ class PortRoyaleGame(
         // the port labels vanished on minimise and never came back, whatever the window did
         // afterwards. Ignoring a degenerate size costs nothing: a real resize always follows.
         if (width <= 0 || height <= 0) return
+        // Fill the window by width rather than fitting the whole map into it. The world keeps the
+        // map's full width and takes its height from the window's own aspect, so a FitViewport has
+        // nothing left to letterbox - at the cost of the map's top and bottom falling outside a
+        // wide window when fully zoomed out. Black bars down both sides cost more than the few
+        // rows of sea this hides, and clampCamera keeps working because camera.viewportHeight is
+        // still the truth about what is visible.
+        viewport.setWorldSize(MapProjection.MAP_WIDTH, MapProjection.MAP_WIDTH * height / width.toFloat())
         viewport.update(width, height)
         portHubUI.resize(width, height)
         marketUI.resize(width, height)
@@ -725,7 +747,7 @@ class PortRoyaleGame(
         // timers. Deliberately NOT used for UI/meta things below (Scene2D stage.act, camera pan,
         // the autosave interval, the rejected-click flash) - those should feel the same at any
         // game speed, only the simulated world should visibly accelerate.
-        val worldDelta = Gdx.graphics.deltaTime * GameSpeed.multiplier
+        val worldDelta = Gdx.graphics.deltaTime * GameSpeed.worldMultiplier
 
         // Refilled before anything can spend it. Every cooldown in the AI is counted in game
         // time, so at 20x the world wants twenty times as many courses per real second as it does
@@ -824,15 +846,25 @@ class PortRoyaleGame(
         }
 
         if (gameActive) {
-            drawMinimap()
-            hudOverlayUI.setDate(GameClock.calendarLabel)
-            hudOverlayUI.setGold(player.gold)
-            hudOverlayUI.setGameSpeed(GameSpeed.multiplier)
-            hudOverlayUI.setCaptains(player.captains.filter { !it.isIdle })
-            hudOverlayUI.setReputation(player.reputation)
+            // The HUD is the sailing screen's own furniture: a port window is a place, and the
+            // painted shopfront is the whole of it. Hiding the chrome rather than letting the two
+            // overlap is what settles the question (see HudOverlayUI.setVisible).
+            val hudVisible = gameMode == GameMode.SAILING
+            hudOverlayUI.setVisible(hudVisible)
+            if (hudVisible) {
+                hudOverlayUI.setDate(GameClock.calendarLabel)
+                hudOverlayUI.setGold(player.gold)
+                hudOverlayUI.setGameSpeed(GameSpeed.multiplier)
+                hudOverlayUI.setPaused(GameSpeed.paused)
+                hudOverlayUI.setShips(buildShipStatuses())
+                hudOverlayUI.setReputation(player.reputation)
+                hudOverlayUI.setDebugText(if (debugOverlayVisible) buildDebugText() else null)
+                // Drawn into the hole in the chart frame, so it has to know where that hole is -
+                // and the frame has to be laid out before anything is drawn into it.
+                drawMinimap()
+                hudOverlayUI.render(Gdx.graphics.deltaTime)
+            }
             announceReputationTierChanges()
-            hudOverlayUI.setDebugText(if (debugOverlayVisible) buildDebugText() else null)
-            hudOverlayUI.render(Gdx.graphics.deltaTime)
         }
 
         if (appState == AppState.PLAYING) {
@@ -1032,6 +1064,60 @@ class PortRoyaleGame(
      *  position (see fleetShipTransform); falls back to wherever the ship is docked only if that
      *  ever comes back null (defensive - every non-idle captain currently always resolves to a
      *  sailing position, see Captain's class doc on the always-sailing abstraction). */
+    /** The fleet column in the HUD: the player's own ship always first - and not clickable, the
+     *  camera is already on it - then one line per captain at sea, each a shortcut to that ship.
+     *  A captain's hold is whatever they bought on this leg (see FleetSimulation.attemptBuy), so
+     *  "cargo" means different things on the two kinds of line only in that the player's is a
+     *  running total and a captain's is one cargo at a time. */
+    private fun buildShipStatuses(): List<ShipStatus> {
+        val condition = player.condition
+        val own = ShipStatus(
+            shipName = player.ownedShips.firstOrNull { it.id == player.activeShipId }?.name ?: player.ship.name,
+            captainName = "You",
+            hull = fraction(condition.currentHull.toFloat(), player.effectiveMaxHull.toFloat()),
+            sails = 1f - condition.fouling,
+            cargo = fraction(player.cargoUsed.toFloat(), player.cargoCapacity.toFloat()),
+            onClick = ::jumpToPlayerShip,
+        )
+        val fleet = player.captains.filter { !it.isIdle }.map { captain ->
+            val ship = player.ownedShips.find { it.id == captain.shipId }
+            ShipStatus(
+                shipName = ship?.name ?: "-",
+                captainName = captain.name,
+                hull = if (ship == null) 0f else fraction(ship.condition.currentHull.toFloat(), ship.shipType.maxHull.toFloat()),
+                sails = if (ship == null) 0f else 1f - ship.condition.fouling,
+                cargo = if (ship == null) 0f else fraction(captain.cargoUnits.toFloat(), ship.shipType.cargoCapacity.toFloat()),
+                onClick = { jumpToCaptain(captain) },
+            )
+        }
+        return listOf(own) + fleet
+    }
+
+    private fun fraction(value: Float, of: Float): Float = if (of <= 0f) 0f else (value / of).coerceIn(0f, 1f)
+
+    /** Tapping the chart moves the view there, keeping whatever zoom the player is already at -
+     *  the ordinary way to cross a big map without dragging it. Only the camera moves; the ship
+     *  keeps its course, and [jumpToPlayerShip] brings the view back. */
+    private fun jumpToMinimapPoint(screenX: Float, screenY: Float) {
+        if (!gameActive || gameMode != GameMode.SAILING) return
+        if (minimapMapRect.width <= 0f || !minimapMapRect.contains(screenX, screenY)) return
+        camera.position.set(
+            (screenX - minimapMapRect.x) / minimapMapRect.width * MapProjection.MAP_WIDTH,
+            (screenY - minimapMapRect.y) / minimapMapRect.height * MapProjection.MAP_HEIGHT,
+            0f,
+        )
+        clampCamera()
+    }
+
+    /** The player's own line in the fleet column does the same thing a captain's does: snap the
+     *  camera back to that ship. Worth having even though the camera usually follows the player -
+     *  it does not while the map is being panned around. */
+    private fun jumpToPlayerShip() {
+        camera.position.set(shipPosition.x, shipPosition.y, 0f)
+        camera.zoom = JUMP_TO_SHIP_ZOOM
+        clampCamera()
+    }
+
     private fun jumpToCaptain(captain: Captain) {
         val target = fleetShipTransform(captain)?.first
             ?: player.ownedShips.find { it.id == captain.shipId }?.let { portApproachPos(it.dockedAt) }
@@ -1664,6 +1750,13 @@ class PortRoyaleGame(
                     "raid ${it.label}: ${it.pirates().size} pirates, ${it.warships().size} navy, " +
                         "${it.secondsRemaining.toInt()}s left"
                 } ?: "no raid (next in ${secondsUntilNextRaid.toInt()}s)"
+            )
+            // The fleet column's own state: a captain who is hired but does not appear on the
+            // HUD is either idle, shipless, or past the number of panels the window has room for,
+            // and from the outside those look identical.
+            appendLine(
+                "fleet: ${player.captains.size} captains (${player.captains.count { !it.isIdle }} at sea)" +
+                    "   hud panels ${buildShipStatuses().size}"
             )
             appendLine("nearest: $nearestLine")
             append("F12 screenshot   diagnostics: ${DiagnosticsFiles.directoryPath ?: "unavailable"}")
@@ -3114,7 +3207,11 @@ class PortRoyaleGame(
      *  [resolveFleetCombat], a REAL fight, not a coin flip); or just sailing, in which case
      *  [evadeIfNeeded] gets a chance to notice trouble early and react before it comes to that. */
     private fun updateFleetEncounters() {
-        for (captain in player.captains) {
+        // Over a copy: losing a fight removes the captain from player.captains (see
+        // resolveFleetCombat), and removing from the list being iterated threw a
+        // ConcurrentModificationException the moment a captain was actually lost - a crash that
+        // needed a pirate to win before it would show itself.
+        for (captain in player.captains.toList()) {
             if (captain.isIdle) continue
             val ownedShip = player.ownedShips.find { it.id == captain.shipId } ?: continue
 
@@ -3882,26 +3979,45 @@ class PortRoyaleGame(
     }
 
     private fun drawMinimap() {
-        val mmX = (Gdx.graphics.width - MINIMAP_WIDTH - MINIMAP_MARGIN).toInt()
-        val mmY = (Gdx.graphics.height - MINIMAP_HEIGHT - MINIMAP_MARGIN).toInt()
-        val border = MINIMAP_BORDER_WIDTH.toInt()
+        // The frame around the minimap is painted art now (HudOverlayUI's chart), so there is no
+        // drawn border here any more - the map is rendered straight into the hole in that picture,
+        // and the hole tells us where. Its aspect is not exactly the map's, so the map is fitted
+        // inside and centred rather than stretched to fill.
+        val window = hudOverlayUI.minimapWindow()
+        val mapAspect = MapProjection.MAP_WIDTH / MapProjection.MAP_HEIGHT
+        var w = window.width
+        var h = w / mapAspect
+        if (h > window.height) {
+            h = window.height
+            w = h * mapAspect
+        }
+        val mmX = (window.x + (window.width - w) / 2f).toInt()
+        val mmY = (window.y + (window.height - h) / 2f).toInt()
+        // Remembered for jumpToMinimapPoint: this is the exact patch of screen the whole world is
+        // drawn into, which is what turns a tap on the chart back into a place in the world.
+        minimapMapRect.set(mmX.toFloat(), mmY.toFloat(), w, h)
 
-        // Border frame: fill a viewport slightly larger than the minimap with the frame color
-        // first, then narrow back to the real minimap rect and draw the map on top - leaves an
-        // even `border`-pixel ring of frame color showing all the way around.
-        Gdx.gl.glViewport(mmX - border, mmY - border, MINIMAP_WIDTH.toInt() + border * 2, MINIMAP_HEIGHT.toInt() + border * 2)
-        shapeRenderer.projectionMatrix = minimapCamera.combined
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
-        shapeRenderer.color = Color.valueOf("C9A24A")
-        shapeRenderer.rect(0f, 0f, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT)
-        shapeRenderer.end()
-
-        Gdx.gl.glViewport(mmX, mmY, MINIMAP_WIDTH.toInt(), MINIMAP_HEIGHT.toInt())
+        Gdx.gl.glViewport(mmX, mmY, w.toInt(), h.toInt())
 
         batch.projectionMatrix = minimapCamera.combined
         batch.begin()
         batch.draw(mapTexture, 0f, 0f, MapProjection.MAP_WIDTH, MapProjection.MAP_HEIGHT)
         batch.end()
+
+        // Who is where: the player in red, each captain out on a route in orange. The radius is
+        // given in minimap PIXELS and converted, not in world units - the chart is the whole
+        // Caribbean squeezed into a couple of hundred pixels, so a world-unit radius that looked
+        // right at one window size would be a speck or a blob at another.
+        val worldPerMinimapPixel = MapProjection.MAP_WIDTH / minimapMapRect.width
+        shapeRenderer.projectionMatrix = minimapCamera.combined
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled)
+        for (captain in player.captains) {
+            if (captain.isIdle) continue
+            val pos = fleetShipTransform(captain)?.first ?: continue
+            minimapDot(pos.x, pos.y, MINIMAP_FLEET_DOT, worldPerMinimapPixel)
+        }
+        minimapDot(shipPosition.x, shipPosition.y, MINIMAP_PLAYER_DOT, worldPerMinimapPixel)
+        shapeRenderer.end()
 
         shapeRenderer.projectionMatrix = minimapCamera.combined
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line)
@@ -3914,6 +4030,15 @@ class PortRoyaleGame(
         viewport.apply()
     }
 
+    /** One ship marker on the chart: a dark rim under a coloured core, so it stays legible over
+     *  both the pale shallows and the dark deep water. */
+    private fun minimapDot(x: Float, y: Float, colour: Color, worldPerPixel: Float) {
+        shapeRenderer.color = MINIMAP_DOT_RIM
+        shapeRenderer.circle(x, y, (MINIMAP_DOT_RADIUS_PX + 1.2f) * worldPerPixel, 12)
+        shapeRenderer.color = colour
+        shapeRenderer.circle(x, y, MINIMAP_DOT_RADIUS_PX * worldPerPixel, 12)
+    }
+
     override fun dispose() {
         shapeRenderer.dispose()
         batch.dispose()
@@ -3922,6 +4047,7 @@ class PortRoyaleGame(
         portLabelFont.dispose()
         mapTexture.dispose()
         ShipArt.dispose()
+        PortFrame.dispose()
         portHubUI.dispose()
         marketUI.dispose()
         shipyardUI.dispose()
@@ -3938,6 +4064,7 @@ class PortRoyaleGame(
         settingsUI.dispose()
         eventToastUI.dispose()
         hudOverlayUI.dispose()
+        HudArt.dispose()
         propertyUI.dispose()
         captainStatusUI.dispose()
         AudioManager.dispose()

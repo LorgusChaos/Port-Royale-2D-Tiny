@@ -32,7 +32,12 @@ object IconFactory {
     val dockedGlow: Texture by lazy { buildGlowIcon() }
     /** Reward icons for the sea-event toast (see EventToastUI) - gold/goods chests reuse
      *  [coin]/a good's own icon, so these two cover the bottle and castaway cases specifically. */
-    val coin: Texture by lazy { buildCoinIcon() }
+    /** The purse: painted art now, not the drawn-in-code disc it used to be. It stands in for the
+     *  word "Gold" everywhere a screen used to spell it out. */
+    val coin: Texture by lazy { buildArtIcon("sprites/icons/gold.png") }
+
+    /** The hold, standing in for the word "Cargo" the same way. */
+    val cargo: Texture by lazy { buildArtIcon("sprites/icons/cargo.png") }
     val bottle: Texture by lazy { buildBottleIcon() }
     val castaway: Texture by lazy { buildCastawayIcon() }
     val warehouse: Texture by lazy { buildArtIcon("sprites/icons/warehouse.png") }
@@ -45,7 +50,11 @@ object IconFactory {
     private val goodIcons = mutableMapOf<Good, Texture>()
     private val captainPortraits = mutableMapOf<Int, Texture>()
 
-    fun iconFor(good: Good): Texture = goodIcons.getOrPut(good) { buildGoodIcon(good) }
+    /** A good's painted icon, from sprites/goods/ - named after the enum constant, so adding a
+     *  good means adding one file with the matching name. AssetIntegrityTest will not catch a
+     *  missing one (the path is built at runtime), but the market screen will, loudly. */
+    fun iconFor(good: Good): Texture =
+        goodIcons.getOrPut(good) { buildArtIcon("sprites/goods/${good.name.lowercase()}.png") }
 
     /** A simple procedural bust portrait for a hired-captain candidate (see TavernUI) - [seed]
      *  (e.g. the candidate's own name.hashCode()) deterministically picks skin/hair/coat color so
@@ -62,6 +71,7 @@ object IconFactory {
         shortageFrame.dispose()
         dockedGlow.dispose()
         coin.dispose()
+        cargo.dispose()
         bottle.dispose()
         castaway.dispose()
         warehouse.dispose()
@@ -184,17 +194,6 @@ object IconFactory {
         return texture
     }
 
-    private fun buildCoinIcon(): Texture {
-        val pm = blank()
-        pm.setColor(Color.valueOf("8A6A1E"))
-        pm.fillCircle(32, 32, 22)
-        pm.setColor(Color.valueOf("EFCB61"))
-        pm.fillCircle(32, 32, 18)
-        pm.setColor(Color.valueOf("8A6A1E"))
-        pm.drawCircle(32, 32, 13)
-        return finish(pm)
-    }
-
     private fun buildBottleIcon(): Texture {
         val pm = blank()
         pm.setColor(Color.valueOf("2E6E4A"))
@@ -267,91 +266,6 @@ object IconFactory {
         pm.fillRectangle(32, 31, 12, 2)
         pm.setColor(Color.valueOf("D9A24A"))
         pm.fillCircle(32, 32, 3)
-        return finish(pm)
-    }
-
-    private fun buildGoodIcon(good: Good): Texture {
-        val pm = blank()
-        when (good) {
-            Good.SUGAR -> {
-                pm.setColor(Color.valueOf("7A5A3A"))
-                pm.fillRectangle(20, 46, 24, 8)
-                pm.setColor(Color.valueOf("F5F0E6"))
-                pm.fillTriangle(32, 8, 16, 46, 48, 46)
-            }
-            Good.RUM -> {
-                pm.setColor(Color.valueOf("3A2A1E"))
-                pm.fillRectangle(22, 10, 8, 10)
-                pm.fillRectangle(18, 20, 16, 32)
-                pm.setColor(Color.valueOf("8A5A2E"))
-                pm.fillRectangle(20, 26, 12, 20)
-                pm.setColor(Color.valueOf("D8C8A8"))
-                pm.fillRectangle(17, 34, 18, 6)
-            }
-            Good.TOBACCO -> {
-                pm.setColor(Color.valueOf("6B4226"))
-                pm.fillCircle(24, 30, 15)
-                pm.fillCircle(38, 34, 13)
-                pm.setColor(Color.valueOf("8A5A2E"))
-                pm.fillCircle(24, 30, 11)
-                pm.fillCircle(38, 34, 9)
-            }
-            Good.COTTON -> {
-                pm.setColor(Color.valueOf("D9C79A"))
-                pm.fillRectangle(30, 36, 4, 16)
-                pm.setColor(Color.valueOf("F7F5F0"))
-                pm.fillCircle(24, 28, 12)
-                pm.fillCircle(38, 28, 12)
-                pm.fillCircle(32, 20, 12)
-            }
-            Good.SPICES -> {
-                pm.setColor(Color.valueOf("6E4A2E"))
-                pm.fillTriangle(20, 20, 44, 20, 32, 10)
-                pm.setColor(Color.valueOf("C24A1E"))
-                pm.fillRectangle(18, 20, 28, 28)
-                pm.setColor(Color.valueOf("E8792E"))
-                pm.fillRectangle(22, 24, 20, 20)
-            }
-            Good.WOOD -> {
-                pm.setColor(Color.valueOf("6B4226"))
-                pm.fillRectangle(10, 26, 44, 14)
-                pm.setColor(Color.valueOf("8A5A2E"))
-                pm.fillCircle(12, 33, 7)
-                pm.fillCircle(52, 33, 7)
-                pm.setColor(Color.valueOf("C9A876"))
-                pm.fillCircle(12, 33, 4)
-                pm.fillCircle(52, 33, 4)
-            }
-            Good.COFFEE -> {
-                pm.setColor(Color.valueOf("3E2415"))
-                pm.fillCircle(24, 32, 13)
-                pm.fillCircle(40, 32, 13)
-                pm.setColor(Color.valueOf("1C1209"))
-                pm.fillRectangle(23, 26, 2, 12)
-                pm.fillRectangle(39, 26, 2, 12)
-            }
-            Good.CACAO -> {
-                pm.setColor(Color.valueOf("A85A2E"))
-                pm.fillCircle(32, 32, 18)
-                pm.setColor(Color.valueOf("C97A3E"))
-                pm.drawLine(32, 14, 32, 50)
-                pm.drawLine(18, 22, 24, 44)
-                pm.drawLine(46, 22, 40, 44)
-            }
-            Good.CLOTH -> {
-                pm.setColor(Color.valueOf("4A3E7A"))
-                pm.fillRectangle(14, 18, 36, 30)
-                pm.setColor(Color.valueOf("6355A0"))
-                pm.fillRectangle(14, 24, 36, 4)
-                pm.fillRectangle(14, 34, 36, 4)
-            }
-            Good.SILVER -> {
-                pm.setColor(Color.valueOf("8A8F98"))
-                pm.fillRectangle(16, 26, 32, 18)
-                pm.setColor(Color.valueOf("D5D9E0"))
-                pm.fillRectangle(18, 28, 28, 5)
-            }
-        }
         return finish(pm)
     }
 

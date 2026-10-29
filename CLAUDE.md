@@ -11,6 +11,7 @@ export JAVA_HOME="C:\Program Files\Eclipse Adoptium\jdk-17.0.20.8-hotspot"
 ./gradlew.bat -q :core:test                                   # unit tests (run after EVERY change)
 ./gradlew.bat -q :lwjgl3:run                                  # launch (run in background)
 ./gradlew.bat -q :lwjgl3:shadowJar                            # distributable: lwjgl3/build/libs/port-royale-2d-tiny-<version>.jar
+./gradlew.bat -q :core:reference                              # regenerate Reference/ tables from the code
 ```
 
 `-q` suppresses the per-task log lines and the "Deprecated Gradle features" boilerplate that
@@ -28,6 +29,19 @@ holding a screen's top-level constants, and typically at the moment the player f
 screen. It looks exactly like a broken build and isn't one. **Don't run a compile or test task
 while a play session is open**; wait for the window to close. (Cost of learning this the hard way:
 one crash report and a lost session.)
+
+## Reference — look here before reading code or opening sprites
+
+`Reference/` holds what the game *contains*: every hull with its stats and its appearance, the
+ten goods, how a price is computed, standing, warehouses, loans, captains. **Check it first.**
+Opening a PNG to recall what a Brigantine looks like, or grepping `ShipType.kt` for a price, is
+exactly what it exists to replace — and an image read costs far more than a table lookup.
+
+If it does not answer the question, read the code (and then consider whether the answer belonged
+in `Reference/`). Its numeric tables are generated — see `Reference/README.md` and the release
+workflow below; the prose around them is hand-written and safe to edit.
+
+Not to be confused with `Project design/`, which is *why* and *what next*, not *what is*.
 
 ## Before starting a roadmap milestone
 
@@ -146,13 +160,30 @@ Any new or replaced picture goes through the `art` skill (`.claude/skills/art/SK
 
 - Sources and mockups in `art-src/`, never in `assets/` (that folder ships inside the jar).
 - Sprites are produced by `tools/art/art.py` (`slice` a sheet, `bleed` a single cut-out,
+  `uncheck` a generator's checkerboard baked into one, `key` a flat background colour out,
   `preview` edges) — never cropped or cleaned by hand. Python deps: `tools/art/requirements.txt`.
+- `key --shade N` also clears pixels that are a *darkened* version of the key colour, matched by
+  hue rather than distance. Generators paint an object's contact shadow in the background's own
+  colour — magenta at (121,4,121) — which by distance sits exactly where the real art begins, so
+  no threshold separates them. 24 is the working value; at 40+ it starts eating dark wood.
+- HUD elements are cut with
+  `art.py key <file> --colour FF00FF --tolerance 100 --soft 30 --spill 4 --shade 24`. The
+  tolerance of 100 comes from the measured histogram: background sits under 20, the painted
+  magenta glow trails off to ~120, real art starts past 130.
+- `key` is global by default (it reaches holes a flood fill cannot, which is why props are
+  generated on magenta). Add `--flood` when the key colour also occurs *inside* the art — the four
+  port frames were painted on black and have black shadows, and keying those punched holes
+  through the picture. With `--flood` only background the border can reach is cut.
+- The port-window frames (`assets/sprites/ui/port_*_frame.png`) are cut this way:
+  `art.py key <file> --colour 000000 --tolerance 12 --soft 24 --spill 0 --flood`. The tolerance is
+  narrow on purpose: the real background is within 5 of black, painted shadow is 20–60, and at
+  the default 60 the flood walks through the shadows and shreds the stalls.
 - Painted art is drawn with mipmaps + Linear filtering, which only looks right if the RGB under
   transparent pixels matches the edge (`bleed`); otherwise every sprite gets a white or black rim.
   Ships load through `ui/ShipArt.kt`, icons through `IconFactory.buildArtIcon` — never a bare
   `Texture(Gdx.files.internal(...))`, which gets Nearest and no mipmaps.
 - `AssetIntegrityTest` (part of `:core:test`) fails on missing paths, opaque backgrounds, unbled
-  edges and source files left in `assets/`.
+  edges, a painted transparency checkerboard left in a sprite, and source files in `assets/`.
 - Shot mode, for looking at a screen without a person at the keyboard:
   ```
   ./gradlew.bat -q :lwjgl3:run --args="--shot=market --shot-port=Havana --shot-seed=1"
@@ -166,6 +197,8 @@ Any new or replaced picture goes through the `art` skill (`.claude/skills/art/SK
 ## Release workflow
 
 When cutting a version bump (`vX.Y` or `vX.Y.Z`), touch exactly these:
+- `Reference/` — run `./gradlew.bat :core:reference` first, and commit it if the tables moved.
+  This is the one place the reference is kept honest; nothing fails a build if it is stale.
 - `CHANGELOG.md` — new version section (Added/Changed/Fixed)
 - `README.md` — status line, feature list, roadmap checkbox, credits if assets changed
 - `gradle.properties` — `appVersion`

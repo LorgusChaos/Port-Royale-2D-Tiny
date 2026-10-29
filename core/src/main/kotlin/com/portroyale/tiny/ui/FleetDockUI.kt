@@ -3,6 +3,9 @@ package com.portroyale.tiny.ui
 import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.scenes.scene2d.Touchable
+import com.badlogic.gdx.scenes.scene2d.ui.Image
+import com.badlogic.gdx.graphics.g2d.TextureRegion
+import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
@@ -65,7 +68,11 @@ class FleetDockUI(private val player: Player, private val onBack: () -> Unit) {
         panel.add(titleLabel).colspan(4).left().padBottom(12f).row()
 
         goldLabel = Label("", skin)
-        panel.add(goldLabel).colspan(4).left().padBottom(20f).row()
+        // The purse as its painted coins rather than the word, same as every framed screen.
+        val goldRow = Table()
+        goldRow.add(Image(TextureRegionDrawable(TextureRegion(IconFactory.coin)))).size(34f, 27f).padRight(8f)
+        goldRow.add(goldLabel)
+        panel.add(goldRow).colspan(4).left().padBottom(20f).row()
 
         panel.add(listPanel).colspan(4).left().width(560f).padBottom(16f).row()
 
@@ -83,7 +90,7 @@ class FleetDockUI(private val player: Player, private val onBack: () -> Unit) {
 
     private fun refresh() {
         titleLabel.setText("$currentPort - Docks")
-        goldLabel.setText("Gold: ${player.gold}")
+        goldLabel.setText(player.gold.toString())
 
         listPanel.clear()
         val shipsHere = player.ownedShips.filter { it.id == player.activeShipId || it.dockedAt == currentPort }

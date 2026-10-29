@@ -3,17 +3,18 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.5.9 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.6.0 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
 > ships that actually hunt down a target they've spotted, a small hired fleet of captains who
 > fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
-> menu with save/load are all playable in a rough form; art and content breadth are still early.
+> menu with save/load are all playable in a rough form, now under a hand-painted HUD and
+> painted city windows; art and content breadth are still early.
 > See [Roadmap](#roadmap).
 
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.5.9
+## What's here in v0.4.6.0
 
 - A hand-painted map of the Caribbean - jungle, mountain ridges, sandy shores and a turquoise
   shallow-water band along every coast - drawn over the real geography rather than an
@@ -149,6 +150,17 @@ franchise's creators or publishers.
   (goods, port marker) still get an automatic outline for a consistent look. The UI scales
   responsively to the window size, and map labels/icons hold a constant on-screen size regardless
   of zoom.
+- **A hand-painted HUD.** Everything over the sea is a picture rather than a rectangle drawn in
+  code: the minimap in a lantern-hung frame, a gold board, a calendar board with the pause and
+  speed controls set into the woodwork, a reputation panel with four painted bars, and a card per
+  ship owned down the left edge. Gold and cargo are shown as a coin pile and a barrel instead of
+  the words, everywhere in the game. The minimap is also a control - click it and the view jumps
+  there - and carries a red dot for your own ship and an orange one for each ship a hired captain
+  is sailing.
+- **Painted frames for the market, shipyard and tavern** as well as the port hub, each a shopfront
+  in its own right. Each picture states where its usable area is, so the interface is laid out
+  inside what the painting left room for rather than the painting being stretched around a
+  layout; the HUD steps aside entirely while one is open.
 
 ## Tech stack
 
@@ -248,6 +260,12 @@ core/    platform-independent game logic (Kotlin)
 lwjgl3/  desktop (Windows/macOS/Linux) launcher
 assets/  game assets (base map image, ship/tile sprites, music/SFX, font)
 ```
+
+[`Reference/`](Reference/) is the companion to that: what the game *contains* right now - every
+hull with its stats and its appearance, the ten goods, how a price is computed, standing,
+warehouses, loans, captains. Its numeric tables are generated from the code by
+`./gradlew.bat :core:reference`; the prose around them is hand-written. Not to be confused with
+[`Project design/`](Project%20design/), which is the *why* and the *what next*.
 
 ## Roadmap
 
@@ -369,6 +387,12 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       rather than merely populated *(this release)*
 - [ ] **M15** - economy balance pass, now with real thresholds to calibrate against (status
       ceilings, captain hiring costs, the M14 reputation penalty) instead of placeholders
+- [x] **M16a** - the chrome, taken out of M16 and done early: the HUD is painted art rather
+      than panels drawn in code, and the market, shipyard and tavern have painted frames like the
+      port hub's. It does not contradict M16 being last, because these are the pieces M10c cannot
+      move - a gold board, a minimap and a calendar will be a gold board, a minimap and a calendar
+      whatever boarding and gun counts turn out to need. What waits is the screens whose *controls*
+      M10c will change, the shipyard's and combat's *(this release)*
 - [ ] **M16** - full UI/UX polish pass: every remaining menu, icon, and interactive element
       (main menu, settings, save/load, combat screen, HUD/minimap chrome, Property, and every
       city-hub sub-screen) restyled to the same standard as the port hub redesign (M8c) -
@@ -405,8 +429,10 @@ order.
   map*](https://commons.wikimedia.org/wiki/File:Middle_America_relief_location_map.png) by Uwe
   Dedering, licensed [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/deed.en).
 - Ship sprites (5 tiers x 6 colors), city-menu icons (Market/Shipyard/Warehouse/Commandant/
-  Tavern), and the port hub's frame background art are AI-generated, with no identifiable human
-  author/rights-holder to credit.
+  Tavern), the four city-window frames (port hub, market, shipyard, tavern), the painted HUD
+  chrome (minimap frame, gold and calendar boards, reputation panel, ship cards, buttons) and the
+  goods/gold/cargo icons are AI-generated, with no identifiable human author/rights-holder to
+  credit.
 - Tile sprites (currently unused) and an earlier, now-replaced set of ship sprites are from
   Kenney's [*Pirate Pack*](https://kenney.nl/assets/pirate-pack)
   ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).

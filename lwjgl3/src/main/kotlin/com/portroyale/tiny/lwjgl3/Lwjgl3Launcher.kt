@@ -11,7 +11,7 @@ object Lwjgl3Launcher {
     /** The one place the running build states its own version - the window title and the
      *  diagnostic log/crash report all read it from here, so a release bump stays a single edit
      *  in a single file (see CLAUDE.md's release workflow). */
-    private const val VERSION = "0.4.5.9"
+    private const val VERSION = "0.4.6.0"
 
     @JvmStatic
     fun main(args: Array<String>) {

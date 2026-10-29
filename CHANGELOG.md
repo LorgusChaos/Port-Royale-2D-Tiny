@@ -1,5 +1,68 @@
 # Changelog
 
+## [0.4.6.0] - 2026-10-29
+
+### Added
+- **The HUD is painted art.** Everything over the sea - the minimap in its lantern-hung frame, the
+  gold board, the calendar board with the pause and speed controls set into it, the reputation
+  panel with its four painted bars, the ship cards and the Property button - is a picture now,
+  not a rectangle drawn in code with a border round it. The game had one painted window (the port
+  hub) and a programmer-art HUD on top of it; the two no longer disagree.
+- **Three more city windows have their own frames**: the market, the shipyard and the tavern, each
+  a painted shopfront in place of the generic panel. The frames are described by `PortFrameArt`,
+  which carries a measured content box per picture, so the interface is laid out inside whatever
+  the painting left room for rather than the painting being stretched to fit a layout.
+- **Coins instead of the word "gold".** Every balance, price and cost across the menus is a
+  painted coin pile and a number. Cargo reads the same way, as a barrel.
+- **Painted icons for all ten goods**, replacing the pixmaps the game used to draw for itself at
+  startup. `IconFactory` no longer contains any procedural icon code at all.
+- **The minimap is a control, not a readout.** Click anywhere on it and the view jumps there.
+  A red dot marks the player's own ship and an orange dot every ship a hired captain is sailing,
+  so the fleet is visible at a glance instead of only by hunting across the main map.
+- **Ship cards down the left edge**, one per hull owned, each with its name, captain and condition
+  bars; clicking one takes the camera to that ship. Five fit at 16:9, against the two the old
+  top strip had room for.
+- **A real pause.** Pause is held separately from the speed ladder rather than being a zeroth
+  step on it, so releasing it returns the player to the speed they were running at instead of
+  dropping them to 1x.
+- **`Reference/`** - a reference layer for what the game currently contains: every hull with its
+  stats and its appearance, the ten goods, how a price is computed, standing, warehouses, loans,
+  captains. Its numeric tables are generated from the code they describe by
+  `./gradlew.bat :core:reference`, which rewrites only the marked regions and leaves the
+  hand-written prose around them alone. It exists because answering "how fast is a Brigantine" or
+  "what does the Cutter look like" by reading source and opening sprites is slow and goes stale
+  silently; `Project design/` stays what it was, the "why", not the "what is".
+- Art pipeline: `art.py key --flood` cuts only the background the border can reach (a frame
+  painted on black has black shadows, and keying those globally punched holes through the
+  picture); `key --shade` clears the contact shadow a generator paints in a darkened version of
+  the key colour, matched by hue rather than distance, because no distance threshold separates it
+  from real art; `slice --equal` cuts every sprite on a sheet to a common box, so a button does
+  not change size between its own states. Two new tools: `compose.py` places cut-out props onto
+  a piece of art by coordinates, and `erase.py` takes an object out of a picture by cloning the
+  surface it sits on, both without a model touching the base art.
+
+### Changed
+- **The window fills by width instead of letterboxing.** The world size is set from the window's
+  own aspect ratio on every resize, so a wider window shows the same width of sea and loses rows
+  top and bottom rather than growing black bars. `camera.viewportHeight` stays the truth about
+  what is visible, which is what camera clamping reads.
+- **The HUD hides itself entirely while a city window is open.** The painted frames are large and
+  the HUD sat over their corners; dimming or shuffling either would have cost both of them.
+- **The closest zoom step is gone** (minimum zoom 0.075 to 0.1). The last step in was close enough
+  to turn the map's own brushwork into texture.
+- `port_town.png` was re-cut: it had the generator's transparency checkerboard baked into it, a
+  handful of grey squares floating beside the town, and had shipped that way.
+- `AssetIntegrityTest` now also fails on a painted checkerboard left in a sprite, and knows which
+  window frames are deliberately still uncut.
+
+### Fixed
+- **A crash when a hired captain's ship was lost while encounters were being swept.** The sweep
+  iterated the captain list directly and the loss removed from it - a `ConcurrentModification`
+  that needed a pirate to actually win to show up.
+- The F3 diagnostic overlay ran off the bottom of the screen: seven lines in a box sized for less.
+- Overlapping text on the tavern's captain cards - Scene2D does not clip a label to its cell, so
+  the longest name simply wrote over its neighbour.
+
 ## [0.4.5.9] - 2026-08-12
 
 ### Added
