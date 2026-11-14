@@ -327,7 +327,12 @@ rule: cheapest first for quick wins, riskiest next while the codebase is still s
       player's own encounters and a fleet captain's (done as part of M10a) - what's left is
       *persistence*, how doggedly a hostile ship keeps pursuing after a failed attempt, rather
       than every encounter being a fresh, memory-less check
-- [ ] **M10c** - **the next stage** (re-scoped and promoted ahead of M9/M16, 2026-10-22):
+- [ ] **M16b** - **the next stage** (decided 2026-11-15, ahead of M10c): finish what M16a
+      started - every remaining screen gets painted art instead of the generic panel: main menu,
+      new game, save/load, settings, combat, fortress, docks, Property, the captain window and the
+      message box. Frames are drawn with room to spare, since M10c will add controls to combat
+      and the shipyard.
+- [ ] **M10c** - after M16b (re-scoped and promoted ahead of M9/M16, 2026-10-22):
       ship balance by class, and the combat depth that gives the classes something to differ
       about - **boarding**, and with it a **crew** that has a headcount and takes losses, and
       **guns as a countable thing**. The last one is the point: a hull's tonnage has to be
