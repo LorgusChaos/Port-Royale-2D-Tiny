@@ -28,8 +28,12 @@ on:
       - '.github/workflows/release.yml'
   workflow_dispatch:
 
+# Read-only by default: the version check and the test run need nothing more, and a job that
+# runs the project's tests should not hold a token that can push. Only the release job, which
+# creates the tag and uploads the build, asks for write access (REVIEW.md, finding 43). Actions
+# are pinned to the commit their tag pointed at when this was written, the tag kept alongside.
 permissions:
-  contents: write
+  contents: read
 
 # Never let two release runs publish at once; never cancel one midway through
 # creating a tag and uploading 140 MB of assets.
@@ -49,7 +53,7 @@ jobs:
       # Full history: the skip check below has to resolve existing tags, and a
       # default shallow clone fetches none of them.
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
@@ -106,12 +110,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # The project targets Java 17 (sourceCompatibility in both modules), and
       # jpackage in the release job below ships with the same JDK.
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: 17
@@ -121,7 +125,7 @@ jobs:
       # Gradle's Terms of Use for it. v5 is the last fully open-source major and
       # already runs on Node 24, which is all the deprecation notice asked for.
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
 
       # gradlew is committed from a Windows machine, where git records no
       # execute bit; without this the next step fails with "permission denied".
@@ -134,7 +138,7 @@ jobs:
       # report has the full picture, and is worth having when a run fails.
       - name: Upload test report on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: test-report
           path: |
@@ -147,14 +151,16 @@ jobs:
     needs: [check, test]
     if: needs.check.outputs.skip == 'false'
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # jpackage is part of the JDK (since 14), so no extra tooling is needed
       # to produce the exe - this same JDK is what gets bundled as the runtime.
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: 17
@@ -164,7 +170,7 @@ jobs:
       # Gradle's Terms of Use for it. v5 is the last fully open-source major and
       # already runs on Node 24, which is all the deprecation notice asked for.
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
 
       # The single self-contained jar: all dependencies plus the LWJGL/GDX
       # natives merged in, and assets baked in via lwjgl3's resources srcDir.

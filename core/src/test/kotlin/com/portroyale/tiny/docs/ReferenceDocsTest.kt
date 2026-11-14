@@ -46,20 +46,25 @@ class ReferenceDocsTest {
 
     private val referenceDir = File("../Reference")
 
+    /** Every generated region: the file it lives in, its key, and what the code says it holds. */
+    internal fun generatedBlocks(): List<Triple<File, String, String>> {
+        val ships = File(referenceDir, "ships.md")
+        val economy = File(referenceDir, "goods-and-economy.md")
+        return listOf(
+            Triple(ships, "hulls", hullTable()),
+            Triple(ships, "longboat", longboatBlock()),
+            Triple(ships, "upgrades", upgradeTable()),
+            Triple(economy, "goods", goodsTable()),
+            Triple(economy, "reputation", reputationTable()),
+            Triple(economy, "warehouse", warehouseBlock()),
+            Triple(economy, "loans", loanTable()),
+            Triple(economy, "captains", captainBlock()),
+        )
+    }
+
     @Test
     fun `regenerate the reference tables`() {
-        val ships = File(referenceDir, "ships.md")
-        writeBlock(ships, "hulls", hullTable())
-        writeBlock(ships, "longboat", longboatBlock())
-        writeBlock(ships, "upgrades", upgradeTable())
-
-        val economy = File(referenceDir, "goods-and-economy.md")
-        writeBlock(economy, "goods", goodsTable())
-        writeBlock(economy, "reputation", reputationTable())
-        writeBlock(economy, "warehouse", warehouseBlock())
-        writeBlock(economy, "loans", loanTable())
-        writeBlock(economy, "captains", captainBlock())
-
+        for ((file, key, body) in generatedBlocks()) writeBlock(file, key, body)
         println("reference docs regenerated in ${referenceDir.canonicalPath}")
     }
 
@@ -194,6 +199,17 @@ class ReferenceDocsTest {
     /** Replaces one marked region in place. Fails loudly rather than appending: a missing marker
      *  means the hand-written file and this generator have drifted apart, and silently writing
      *  the table somewhere else would hide that. */
+    /** What a generated region of [file] holds now, line endings aside. */
+    internal fun readBlock(file: File, key: String): String {
+        require(file.isFile) { "no such reference file: ${file.canonicalPath}" }
+        val text = file.readText().replace("\r\n", "\n")
+        val begin = "<!-- generated:$key -->"
+        val from = text.indexOf(begin)
+        val to = text.indexOf("<!-- /generated:$key -->")
+        require(from >= 0 && to > from) { "${file.name} has no $begin region" }
+        return text.substring(from + begin.length, to).trim()
+    }
+
     private fun writeBlock(file: File, key: String, body: String) {
         require(file.isFile) { "no such reference file: ${file.canonicalPath}" }
         val begin = "<!-- generated:$key -->"
@@ -203,5 +219,23 @@ class ReferenceDocsTest {
         val to = text.indexOf(end)
         require(from >= 0 && to > from) { "${file.name} has no $begin ... $end region" }
         file.writeText(text.substring(0, from + begin.length) + "\n" + body + "\n" + text.substring(to))
+    }
+}
+
+/**
+ * The guard the generator could not be: `Reference/` holds the game's numbers so nobody has to
+ * read the code for them, and nothing noticed when the code moved on and the tables did not
+ * (REVIEW.md, finding 41). This runs in `:core:test`; when it fails, run
+ * `./gradlew.bat :core:reference` and commit what it rewrites.
+ */
+class ReferenceDocsCurrentTest {
+
+    @Test
+    fun `the reference tables say what the code says`() {
+        val generator = ReferenceDocsTest()
+        val stale = generator.generatedBlocks()
+            .filter { (file, key, body) -> generator.readBlock(file, key) != body.replace("\r\n", "\n").trim() }
+            .map { (file, key, _) -> "${file.name}#$key" }
+        kotlin.test.assertTrue(stale.isEmpty(), "Reference/ is behind the code in $stale - run ./gradlew.bat :core:reference")
     }
 }

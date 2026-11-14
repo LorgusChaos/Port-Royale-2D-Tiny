@@ -63,6 +63,10 @@ object FleetSimulation {
     ): Boolean {
         val ship = player.ownedShips.find { it.id == shipId } ?: return false
         if (!isShipFree(player, ship.id)) return false
+        // What the tavern screen checked when it was drawn, checked again here, when it counts
+        // (REVIEW.md, finding 17): a captain still at sea, a ship lying somewhere else, or a
+        // "route" from a port to itself.
+        if (!captain.isIdle || ship.dockedAt != portA || portA == portB) return false
         captain.shipId = shipId
         captain.portA = portA
         captain.portB = portB
@@ -105,6 +109,15 @@ object FleetSimulation {
      *  completes (see resolveArrival), so changing portB mid-leg while still outbound would make
      *  the captain "arrive" somewhere the rendered path never actually went. */
     fun canRedirect(captain: Captain): Boolean = !captain.headingToB
+
+    /** Gives a captain a new far port - only on the way home (see [canRedirect]) and never their
+     *  own home port. The captain-status window used to write portB itself, checking only when
+     *  it was last redrawn (REVIEW.md, finding 18). */
+    fun redirect(captain: Captain, newPortB: String): Boolean {
+        if (!canRedirect(captain) || newPortB == captain.portA) return false
+        captain.portB = newPortB
+        return true
+    }
 
     /** Advances every active captain's route by however much game-time just passed. Three cases
      *  per captain, in order: still travelling TO a shelter port (see [departForShelter]) - once

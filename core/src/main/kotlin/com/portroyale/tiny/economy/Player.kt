@@ -75,21 +75,42 @@ class Player(var gold: Int = 10000) {
     val effectiveManeuverability: Int get() = effectiveManeuverability(ship, condition)
     val effectiveSpeed: Float get() = effectiveSpeed(ship, condition)
 
+    // Every action below checks its own `can...` and answers whether it went through, changing
+    // nothing when it did not. A port screen checks when it is drawn and acts when a button is
+    // pressed - possibly much later, after a captain has spent from the same purse - so the
+    // check on the screen is only a hint; this is the rule (REVIEW.md, finding 17).
+
     fun canBuy(price: Int): Boolean = gold >= price && cargoUsed < cargoCapacity
 
-    fun buy(good: Good, price: Int) {
+    fun buy(good: Good, price: Int): Boolean {
+        if (!canBuy(price)) return false
         gold -= price
         cargo[good] = (cargo[good] ?: 0) + 1
+        return true
     }
 
     fun canSell(good: Good): Boolean = (cargo[good] ?: 0) > 0
 
-    fun sell(good: Good, price: Int) {
+    fun sell(good: Good, price: Int): Boolean {
+        if (!canSell(good)) return false
         gold += price
         cargo[good] = (cargo[good] ?: 0) - 1
+        return true
     }
 
-    fun canBuyShip(shipType: ShipType): Boolean = gold >= shipType.price
+    /** Takes up to [units] of [good] aboard as far as the hold has room, and answers how many
+     *  went aboard - a find at sea is not paid for, so what does not fit is simply left
+     *  (REVIEW.md, finding 8). */
+    fun takeAboard(good: Good, units: Int): Int {
+        val taken = units.coerceAtMost(cargoCapacity - cargoUsed).coerceAtLeast(0)
+        if (taken > 0) cargo[good] = (cargo[good] ?: 0) + taken
+        return taken
+    }
+
+    /** Affordable, and the hold fits the new hull - cargo lives on the player, so a smaller ship
+     *  would sail with more aboard than it can carry; the same rule as [canBoardShip]
+     *  (REVIEW.md, finding 3). */
+    fun canBuyShip(shipType: ShipType): Boolean = gold >= shipType.price && cargoFitsOn(shipType)
 
     private fun nextShipId(): Int = (ownedShips.maxOfOrNull { it.id } ?: 0) + 1
 
@@ -97,13 +118,15 @@ class Player(var gold: Int = 10000) {
      *  it docks here instead (see FleetDockUI for renaming/re-crewing it later). The new hull
      *  arrives pristine because it is a brand new OwnedShip carrying its own fresh condition,
      *  not because anything is reset here. */
-    fun buyShip(shipType: ShipType, name: String, currentPort: String) {
+    fun buyShip(shipType: ShipType, name: String, currentPort: String): Boolean {
+        if (!canBuyShip(shipType)) return false
         gold -= shipType.price
         ownedShips.find { it.id == activeShipId }?.dockedAt = currentPort
         val newShip = OwnedShip(nextShipId(), name.ifBlank { shipType.name }, shipType, currentPort)
         ownedShips.add(newShip)
         activeShipId = newShip.id
         ship = shipType
+        return true
     }
 
     /** Whether the hold would still fit if the player moved onto this class of ship - see
@@ -124,11 +147,13 @@ class Player(var gold: Int = 10000) {
 
     /** Boards [shipId], carrying that hull's OWN wear and upgrades with it - see [condition].
      *  Nothing is reset: a battered ship is still battered, an upgraded one still upgraded. */
-    fun boardShip(shipId: Int, currentPort: String) {
-        val target = ownedShips.find { it.id == shipId } ?: return
+    fun boardShip(shipId: Int, currentPort: String): Boolean {
+        if (!canBoardShip(shipId, currentPort)) return false
+        val target = ownedShips.find { it.id == shipId } ?: return false
         ownedShips.find { it.id == activeShipId }?.dockedAt = currentPort
         activeShipId = target.id
         ship = target.shipType
+        return true
     }
 
     fun canRenameShip(shipId: Int): Boolean = ownedShips.any { it.id == shipId }
@@ -160,88 +185,117 @@ class Player(var gold: Int = 10000) {
     }
 
     fun canUpgradeCannons(): Boolean = condition.cannonUpgradeCost()?.let { gold >= it } ?: false
-    fun upgradeCannons() {
-        condition.cannonUpgradeCost()?.let { cost -> gold -= cost; condition.cannonLevel++ }
+    fun upgradeCannons(): Boolean {
+        if (!canUpgradeCannons()) return false
+        val cost = condition.cannonUpgradeCost() ?: return false
+        gold -= cost
+        condition.cannonLevel++
+        return true
     }
 
     fun canUpgradeOars(): Boolean = condition.oarUpgradeCost()?.let { gold >= it } ?: false
-    fun upgradeOars() {
-        condition.oarUpgradeCost()?.let { cost -> gold -= cost; condition.oarLevel++ }
+    fun upgradeOars(): Boolean {
+        if (!canUpgradeOars()) return false
+        val cost = condition.oarUpgradeCost() ?: return false
+        gold -= cost
+        condition.oarLevel++
+        return true
     }
 
     fun canUpgradeSails(): Boolean = condition.sailUpgradeCost()?.let { gold >= it } ?: false
-    fun upgradeSails() {
-        condition.sailUpgradeCost()?.let { cost -> gold -= cost; condition.sailLevel++ }
+    fun upgradeSails(): Boolean {
+        if (!canUpgradeSails()) return false
+        val cost = condition.sailUpgradeCost() ?: return false
+        gold -= cost
+        condition.sailLevel++
+        return true
     }
 
     fun canCleanHull(): Boolean = condition.fouling > 0f && gold >= condition.cleanCost()
-    fun cleanHull() {
+    fun cleanHull(): Boolean {
+        if (!canCleanHull()) return false
         gold -= condition.cleanCost()
         condition.fouling = 0f
+        return true
     }
 
     fun canRepair(): Boolean = condition.currentHull < effectiveMaxHull && gold >= condition.repairCost(effectiveMaxHull)
-    fun repair() {
+    fun repair(): Boolean {
+        if (!canRepair()) return false
         gold -= condition.repairCost(effectiveMaxHull)
         condition.currentHull = effectiveMaxHull
+        return true
     }
 
     fun warehouseAt(portName: String): Warehouse? = warehouses[portName]
 
     fun canBuyWarehouse(portName: String): Boolean = warehouses[portName] == null && gold >= WAREHOUSE_PURCHASE_PRICE
-    fun buyWarehouse(portName: String) {
+    fun buyWarehouse(portName: String): Boolean {
+        if (!canBuyWarehouse(portName)) return false
         gold -= WAREHOUSE_PURCHASE_PRICE
         warehouses[portName] = Warehouse()
+        return true
     }
 
     fun canExpandWarehouse(portName: String): Boolean {
         val cost = warehouses[portName]?.expansionCost() ?: return false
         return gold >= cost
     }
-    fun expandWarehouse(portName: String) {
-        val warehouse = warehouses[portName] ?: return
-        val cost = warehouse.expansionCost() ?: return
+    fun expandWarehouse(portName: String): Boolean {
+        if (!canExpandWarehouse(portName)) return false
+        val warehouse = warehouses[portName] ?: return false
+        val cost = warehouse.expansionCost() ?: return false
         gold -= cost
         warehouse.level++
+        return true
     }
 
     fun canStoreGood(portName: String, good: Good): Boolean {
         val warehouse = warehouses[portName] ?: return false
         return (cargo[good] ?: 0) > 0 && warehouse.goodsUsed < warehouse.capacity
     }
-    fun storeGood(portName: String, good: Good) {
-        val warehouse = warehouses[portName] ?: return
+    fun storeGood(portName: String, good: Good): Boolean {
+        if (!canStoreGood(portName, good)) return false
+        val warehouse = warehouses[portName] ?: return false
         cargo[good] = (cargo[good] ?: 0) - 1
         warehouse.goods[good] = (warehouse.goods[good] ?: 0) + 1
+        return true
     }
 
     fun canWithdrawGood(portName: String, good: Good): Boolean {
         val warehouse = warehouses[portName] ?: return false
         return (warehouse.goods[good] ?: 0) > 0 && cargoUsed < cargoCapacity
     }
-    fun withdrawGood(portName: String, good: Good) {
-        val warehouse = warehouses[portName] ?: return
+    fun withdrawGood(portName: String, good: Good): Boolean {
+        if (!canWithdrawGood(portName, good)) return false
+        val warehouse = warehouses[portName] ?: return false
         warehouse.goods[good] = (warehouse.goods[good] ?: 0) - 1
         cargo[good] = (cargo[good] ?: 0) + 1
+        return true
     }
 
     fun canStoreGold(portName: String, amount: Int): Boolean =
         warehouses[portName] != null && gold >= amount
-    fun storeGold(portName: String, amount: Int) {
-        val warehouse = warehouses[portName] ?: return
+    fun storeGold(portName: String, amount: Int): Boolean {
+        if (!canStoreGold(portName, amount)) return false
+        val warehouse = warehouses[portName] ?: return false
         gold -= amount
         warehouse.gold += amount
+        return true
     }
 
     fun canWithdrawGold(portName: String, amount: Int): Boolean = (warehouses[portName]?.gold ?: 0) >= amount
-    fun withdrawGold(portName: String, amount: Int) {
-        val warehouse = warehouses[portName] ?: return
+    fun withdrawGold(portName: String, amount: Int): Boolean {
+        if (!canWithdrawGold(portName, amount)) return false
+        val warehouse = warehouses[portName] ?: return false
         warehouse.gold -= amount
         gold += amount
+        return true
     }
 
     fun canTakeLoan(): Boolean = loan == null
-    fun takeLoan(offer: LoanOffer, faction: Faction, currentGameMinutes: Float) {
+    fun takeLoan(offer: LoanOffer, faction: Faction, currentGameMinutes: Float): Boolean {
+        if (!canTakeLoan()) return false
         gold += offer.principal
         loan = Loan(
             faction = faction,
@@ -250,16 +304,34 @@ class Player(var gold: Int = 10000) {
             takenAtGameMinutes = currentGameMinutes,
             deadlineGameMinutes = currentGameMinutes + offer.termGameMinutes
         )
+        return true
+    }
+
+    /**
+     * The overdue rule: once the deadline has passed, the debt doubles - once - and the lender's
+     * navy turns on the player. Answers the loan at the moment it goes overdue, so the game can
+     * say so, and null every other time. Moved here out of PortRoyaleGame so the rule has a test
+     * (REVIEW.md, finding 42).
+     */
+    fun checkLoanDeadline(currentGameMinutes: Float): Loan? {
+        val current = loan ?: return null
+        if (current.overdue || currentGameMinutes < current.deadlineGameMinutes) return null
+        current.overdue = true
+        current.repayAmount *= 2
+        reputation[current.faction] = REPUTATION_MIN
+        return current
     }
 
     fun canRepayLoan(): Boolean {
         val current = loan ?: return false
         return gold >= current.repayAmount
     }
-    fun repayLoan() {
-        val current = loan ?: return
+    fun repayLoan(): Boolean {
+        if (!canRepayLoan()) return false
+        val current = loan ?: return false
         gold -= current.repayAmount
         loan = null
+        return true
     }
 
     fun reputationTier(faction: Faction): ReputationTier = reputationTier(reputation[faction] ?: 0)

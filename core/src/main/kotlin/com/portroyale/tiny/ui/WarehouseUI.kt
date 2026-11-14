@@ -116,13 +116,11 @@ class WarehouseUI(
         buyLabel = frame.bodyLabel(Align.center)
         buyPanel.add(buyLabel).padBottom(20f).row()
         buyButton = frame.button("Buy Warehouse") {
-            if (player.canBuyWarehouse(currentPort)) {
-                val isFirstEver = player.warehouses.isEmpty()
-                player.buyWarehouse(currentPort)
-                AudioManager.playCoins()
-                refresh()
-                if (isFirstEver) onFirstWarehousePurchased()
-            }
+            val isFirstEver = player.warehouses.isEmpty()
+            val bought = player.buyWarehouse(currentPort)
+            if (bought) AudioManager.playCoins()
+            refresh()
+            if (bought && isFirstEver) onFirstWarehousePurchased()
         }
         buyPanel.add(buyButton).width(320f).height(BUTTON_H * 1.3f)
     }
@@ -135,11 +133,8 @@ class WarehouseUI(
         storagePanel.add(capacityLabel)
             .colspan(4).width(ICON_COL + NAME_COL + HELD_COL + STORED_COL).height(HEADER_H).left()
         expandButton = frame.button("Expand") {
-            if (player.canExpandWarehouse(currentPort)) {
-                player.expandWarehouse(currentPort)
-                AudioManager.playCoins()
-                refresh()
-            }
+            if (player.expandWarehouse(currentPort)) AudioManager.playCoins()
+            refresh()
         }
         storagePanel.add(expandButton).colspan(2).width(STORE_COL + WITHDRAW_COL).height(BUTTON_H).row()
 
@@ -156,18 +151,12 @@ class WarehouseUI(
         goldRow = addRow(
             IconFactory.coin, "x$GOLD_MOVE_AMOUNT", "Store", "Withdraw",
             onStore = {
-                if (player.canStoreGold(currentPort, GOLD_MOVE_AMOUNT)) {
-                    player.storeGold(currentPort, GOLD_MOVE_AMOUNT)
-                    AudioManager.playCoins()
-                    refresh()
-                }
+                if (player.storeGold(currentPort, GOLD_MOVE_AMOUNT)) AudioManager.playCoins()
+                refresh()
             },
             onWithdraw = {
-                if (player.canWithdrawGold(currentPort, GOLD_MOVE_AMOUNT)) {
-                    player.withdrawGold(currentPort, GOLD_MOVE_AMOUNT)
-                    AudioManager.playCoins()
-                    refresh()
-                }
+                if (player.withdrawGold(currentPort, GOLD_MOVE_AMOUNT)) AudioManager.playCoins()
+                refresh()
             }
         )
 
@@ -175,16 +164,12 @@ class WarehouseUI(
             goodRows[good] = addRow(
                 IconFactory.iconFor(good), good.displayName, "Store", "Withdraw",
                 onStore = {
-                    if (player.canStoreGood(currentPort, good)) {
-                        player.storeGood(currentPort, good)
-                        refresh()
-                    }
+                    player.storeGood(currentPort, good)
+                    refresh()
                 },
                 onWithdraw = {
-                    if (player.canWithdrawGood(currentPort, good)) {
-                        player.withdrawGood(currentPort, good)
-                        refresh()
-                    }
+                    player.withdrawGood(currentPort, good)
+                    refresh()
                 }
             )
         }

@@ -70,3 +70,11 @@ __pycache__/
 # TOKEN_SAVING_SETUP.md is a one-off setup brief, and HANDOFF.md is state passed between chats.
 TOKEN_SAVING_SETUP.md
 docs/HANDOFF.md
+
+# --- Art drafts that stay on this machine (REVIEW.md, finding 28) ---
+# Style samples, side-by-side comparisons, prop sheets and intermediate cuts: working material
+# for the art pipeline, not sources of anything that ships.
+art-src/compare/
+art-src/style/
+art-src/props/
+art-src/ui/cut/

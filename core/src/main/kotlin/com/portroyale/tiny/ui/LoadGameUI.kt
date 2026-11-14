@@ -15,13 +15,15 @@ import java.util.Locale
 private val TIMESTAMP_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
 
 /** Load screen: lists every save found on disk: click one to load it immediately. */
-class LoadGameUI(private val onLoad: (saveName: String) -> Unit, private val onBack: () -> Unit) {
+/** [onLoad] answers why a save could not be loaded, or null when it was (REVIEW.md, finding 19). */
+class LoadGameUI(private val onLoad: (saveName: String) -> String?, private val onBack: () -> Unit) {
 
     val stage = Stage(UiScale.viewport())
 
     private val skin = UiSkinFactory.build()
     private val root = Table()
     private val listTable = Table()
+    private val statusLabel = Label("", skin)
 
     init {
         root.setFillParent(true)
@@ -31,6 +33,7 @@ class LoadGameUI(private val onLoad: (saveName: String) -> Unit, private val onB
     }
 
     fun open() {
+        statusLabel.setText("")
         refreshList()
     }
 
@@ -61,7 +64,7 @@ class LoadGameUI(private val onLoad: (saveName: String) -> Unit, private val onB
             button.addListener(object : ClickListener() {
                 override fun clicked(event: InputEvent?, x: Float, y: Float) {
                     AudioManager.playClick()
-                    onLoad(info.name)
+                    statusLabel.setText(onLoad(info.name) ?: "")
                 }
             })
             listTable.add(button).width(200f).pad(4f)
@@ -78,7 +81,8 @@ class LoadGameUI(private val onLoad: (saveName: String) -> Unit, private val onB
         title.setFontScale(1.4f)
         panel.add(title).padBottom(20f).row()
 
-        panel.add(listTable).padBottom(20f).row()
+        panel.add(listTable).padBottom(10f).row()
+        panel.add(statusLabel).padBottom(10f).row()
 
         val backButton = TextButton("Back", skin)
         backButton.addListener(object : ClickListener() {

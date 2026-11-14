@@ -20,6 +20,12 @@ import kotlin.test.assertTrue
  */
 class PathfindingCostTest {
 
+    private companion object {
+        /** Two thirds of MAX_EXPANSIONS, where a search gives up: a cross-map voyage that comes
+         *  near the cap risks being refused outright, and one that needs more has got worse. */
+        const val CROSS_MAP_BUDGET = 40_000
+    }
+
     private lateinit var worldMap: WorldMap
 
     @BeforeTest
@@ -35,36 +41,33 @@ class PathfindingCostTest {
         .let { MapProjection.project(it.lat, it.lon) }
         .let { assertNotNull(worldMap.findNearestWater(it.x, it.y)) }
 
+    // The work a search does, not the time it takes: a count of opened cells is the same on every
+    // machine, while a stopwatch fails on a busy CI runner with no change in the code (REVIEW.md,
+    // finding 26). The stopwatch versions live on in PathfindingTimingTest, outside :core:test.
+
     @Test
-    fun `a frame's worth of routes costs a fraction of a frame`() {
-        // Sixty frames a second leaves about sixteen milliseconds for everything. Several ships
-        // re-laying courses in the same frame must not eat that, so ten long routes are budgeted
-        // well inside one frame - and these are the longest the map allows, corner to corner.
+    fun `a cross-map route opens only part of the sea`() {
+        // The longest the map allows, corner to corner. Each must stay well clear of the point
+        // where the search gives up (MAX_EXPANSIONS), or a long voyage would be refused outright.
         val far = listOf(
             approach("Havana") to approach("Bridgetown"),
             approach("Veracruz") to approach("San Juan"),
             approach("Campeche") to approach("Cartagena")
         )
-        // Warm up, so the measurement is of the algorithm rather than of the JIT.
-        repeat(20) { far.forEach { (from, to) -> worldMap.findPath(from.cpy(), to.cpy()) } }
-
-        val started = System.nanoTime()
-        repeat(10) { far.forEach { (from, to) -> worldMap.findPath(from.cpy(), to.cpy()) } }
-        val millis = (System.nanoTime() - started) / 1_000_000.0
-
-        assertTrue(millis < 250.0, "30 cross-map routes took ${millis}ms")
+        for ((from, to) in far) {
+            assertNotNull(worldMap.findPath(from.cpy(), to.cpy()), "no route $from -> $to")
+            val opened = worldMap.lastSearchExpanded
+            assertTrue(opened < CROSS_MAP_BUDGET, "$from -> $to opened $opened cells")
+        }
     }
 
     @Test
     fun `an unreachable goal gives up promptly instead of surveying the whole sea`() {
         // Inland: no route can exist. The old search would explore every reachable cell first.
         val inland = MapProjection.project(19.0f, -71.0f) // the middle of Hispaniola
-        val from = approach("Havana")
-        val started = System.nanoTime()
-        val route = worldMap.findPath(from.cpy(), inland.cpy())
-        val millis = (System.nanoTime() - started) / 1_000_000.0
+        val route = worldMap.findPath(approach("Havana").cpy(), inland.cpy())
         assertTrue(route == null, "a route was found to dry land")
-        assertTrue(millis < 100.0, "giving up took ${millis}ms")
+        assertEquals(0, worldMap.lastSearchExpanded, "searched the sea for a goal on dry land")
     }
 
     @Test

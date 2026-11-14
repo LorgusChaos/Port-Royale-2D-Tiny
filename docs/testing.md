@@ -9,11 +9,15 @@
   Any test class that touches a price, a date or the speed multiplier needs a `@BeforeTest` that
   calls `.reset()`, or trades from one test leak into another's prices and the failure looks like
   a logic bug in whichever test happened to run second.
-- **Combat rolls the shared `kotlin.random.Random`, which can't be seeded.** Don't assert on a
-  single roll. Either rig the opponent so only one outcome is reachable (a 0-damage enemy can
-  never win; a 100000-hull enemy can never lose; a captain starting below its caution threshold
-  can never fire, since hull only falls), or size the sample so the assertion sits ~8 standard
-  errors from the boundary. `CombatStateTest` and `FleetCombatResolverTest` show both.
+- **Every roll goes through `GameRandom`, so wrap the test in `GameRandom.withSeed(n) { … }`.**
+  Combat (`CombatState`, `FleetCombatResolver`), the AI, raids and sea events all draw from it, and
+  `RandomnessSourceTest` fails the build if anything in `core/src/main` takes a chance elsewhere.
+  A seed makes an outcome exact and repeatable, so assert on it directly instead of sampling. Still
+  prefer rigging the opponent when the test is about a rule rather than a number - a 0-damage enemy
+  can never win, a 100000-hull enemy can never lose, a captain starting below its caution threshold
+  can never fire - because a seed pins one outcome while a rig pins them all. The older
+  sample-sized tests in `CombatStateTest` and `FleetCombatResolverTest` predate this; move them
+  onto a seed when you next touch them.
 - **`Captain.rollCandidate()` randomizes `tradeSense`**, which moves every price that captain
   pays or receives. Build captains by hand (`Captain(name, tradeSense = 0f, caution = …)`) in any
   test that asserts on gold or cargo.

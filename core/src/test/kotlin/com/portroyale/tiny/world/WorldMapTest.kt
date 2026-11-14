@@ -7,6 +7,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -256,5 +257,33 @@ class WorldMapTest {
         val path = worldMap.findPath(cell(2, 10), cell(18, 10), avoid = cell(18, 10), avoidRadiusWorld = 30f)
         assertNotNull(path)
         assertEquals(cell(18, 10), path.last())
+    }
+
+    /** The nearest [path] (taken from [from]) ever comes to [point], sampled every unit. */
+    private fun closestApproach(from: Vector2, path: List<Vector2>, point: Vector2): Float {
+        var closest = from.dst(point)
+        var last = from
+        for (next in path) {
+            val steps = maxOf(1, last.dst(next).toInt())
+            for (i in 0..steps) closest = minOf(closest, last.cpy().lerp(next, i / steps.toFloat()).dst(point))
+            last = next
+        }
+        return closest
+    }
+
+    /** REVIEW.md, finding 5: a start already inside the circle used to make the avoiding search
+     *  impossible, and the fallback then laid the course straight at the threat. */
+    @Test
+    fun `a ship that sights danger nearer than the berth it wants still steers clear of it`() {
+        val worldMap = map()
+        val start = cell(4, 10)
+        val threat = cell(10, 10)
+        val goal = cell(18, 10)
+
+        val evasive = assertNotNull(worldMap.findPath(start, goal, avoid = threat, avoidRadiusWorld = 100f))
+
+        val closest = closestApproach(start, evasive, threat)
+        assertTrue(closest >= start.dst(threat) - 2 * cellSize, "closed to $closest of the threat, starting ${start.dst(threat)} off")
+        assertNotEquals(worldMap.findPath(start, goal), evasive, "fell back to the course straight at the threat")
     }
 }

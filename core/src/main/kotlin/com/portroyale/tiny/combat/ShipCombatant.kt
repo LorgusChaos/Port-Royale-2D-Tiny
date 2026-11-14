@@ -4,11 +4,13 @@ package com.portroyale.tiny.combat
  *  the AiShip afterwards) so CombatState can award the same tier-scaled prize a fleet captain
  *  gets for the same opponent, instead of a flat random sum unrelated to what was fought. Zero
  *  for the player's own stat block, which is never the thing being sunk for a prize. */
+/** [currentHull] is what the ship has left coming into the fight - [maxHull] when not given. */
 data class ShipCombatant(
     val name: String,
     val maxHull: Int,
     val minDamage: Int,
     val maxDamage: Int,
     val spritePath: String,
-    val goldReward: Int = 0
+    val goldReward: Int = 0,
+    val currentHull: Int = maxHull
 )

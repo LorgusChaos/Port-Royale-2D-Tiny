@@ -70,6 +70,8 @@ class TavernUI(
     private var selectedShipId: Int? = null
     private var selectedPortB = ""
     private var freshCandidates = listOf<Captain>()
+    /** The captain whose Recall button was pressed once with cargo aboard and now asks to confirm. */
+    private var armedRecall: Captain? = null
 
     init {
         stage.addActor(frame.group)
@@ -79,6 +81,7 @@ class TavernUI(
 
     fun open(portName: String) {
         currentPort = portName
+        armedRecall = null
         if (selectedPortB.isEmpty() || selectedPortB == currentPort) {
             selectedPortB = Ports.ALL.map { it.name }.first { it != currentPort }
         }
@@ -203,13 +206,27 @@ class TavernUI(
             }).left().colspan(2).padTop(8f).row()
 
             val statusLabel = frame.bodyLabel()
-            statusLabel.setText("${captain.lastReport}  Lifetime profit: ${captain.totalProfit}g")
+            val cargoGood = captain.cargoGood
+            val hasCargo = captain.cargoUnits > 0 && cargoGood != null
+            val armed = hasCargo && armedRecall === captain
+            var report = "${captain.lastReport}  Lifetime profit: ${captain.totalProfit}g"
+            if (armed && cargoGood != null) {
+                report += "\nRecalling ${captain.name} now writes off ${captain.cargoUnits}x ${cargoGood.displayName} " +
+                    "(cost ${captain.cargoCostTotal}g)."
+            }
+            statusLabel.setText(report)
             statusLabel.setWrap(true)
             activePanel.add(statusLabel).left().width(REPORT_W).padBottom(4f)
 
-            activePanel.add(frame.button("Recall") {
+            activePanel.add(frame.button(if (armed) "Confirm recall" else "Recall", fontScale = if (armed) CARD_TEXT_SCALE else 1f) {
                 AudioManager.playClick()
-                FleetSimulation.recall(player, captain)
+                if (hasCargo && armedRecall !== captain) {
+                    // Cargo aboard would be written off: the first click only asks.
+                    armedRecall = captain
+                } else {
+                    armedRecall = null
+                    FleetSimulation.recall(player, captain)
+                }
                 refresh()
             }).width(RECALL_W).height(BUTTON_H).padBottom(4f).row()
         }
@@ -252,8 +269,8 @@ class TavernUI(
             if (ok) {
                 AudioManager.playCoins()
                 if (isFresh) freshCandidates = List(3) { Captain.rollCandidate() }
-                refresh()
             }
+            refresh()
         }
         hireButton.touchable = if (!isFresh || player.gold >= cost) Touchable.enabled else Touchable.disabled
         hireButton.color.a = if (!isFresh || player.gold >= cost) 1f else 0.45f

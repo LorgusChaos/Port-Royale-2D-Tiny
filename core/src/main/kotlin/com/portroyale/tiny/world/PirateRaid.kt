@@ -17,6 +17,11 @@ class SinkMark(val position: Vector2, val wasPirate: Boolean)
  */
 enum class RaidPhase { GATHERING, SAILING, RAIDING }
 
+/** How long a band may take to gather before it sets out with whoever arrived - generous, since a
+ *  band is drawn from across the map; it is there so a ship that cannot arrive cannot hold the
+ *  raid for ever (REVIEW.md, finding 13). */
+const val RAID_GATHER_SECONDS = 300f
+
 /**
  * A stretch of sea gone bad for a while: pirates working a corridor between two ports, and the
  * navies that own those ports coming out to deal with them.
@@ -103,9 +108,37 @@ class PirateRaid(
         announced = true
     }
 
-    fun pirates(): List<AiShip> = displacedAnchors.keys.filter { it.role == AiShipRole.PIRATE }
+    /** The raid's pirates still afloat. Counted against [alive] rather than the books alone: a
+     *  ship can leave the sea by a way that never released it, and a raid that counted it would
+     *  never see its corridor clear (REVIEW.md, finding 13). */
+    fun pirates(alive: Collection<AiShip>): List<AiShip> =
+        displacedAnchors.keys.filter { it.role == AiShipRole.PIRATE && it in alive }
 
-    fun warships(): List<AiShip> = displacedAnchors.keys.filter { it.role == AiShipRole.MILITARY }
+    fun warships(alive: Collection<AiShip>): List<AiShip> =
+        displacedAnchors.keys.filter { it.role == AiShipRole.MILITARY && it in alive }
+
+    enum class Gathering { WAITING, SET_OUT, ABANDONED }
+
+    /** World seconds the band has left to gather at the rally point. */
+    var gatherSecondsLeft: Float = RAID_GATHER_SECONDS
+
+    /**
+     * One step of gathering. Sets out as soon as every member afloat has reached the rally
+     * point; once [gatherSecondsLeft] runs out it sets out with whoever is there and sends the
+     * stragglers home, and if nobody is there the raid is called off. Without the limit, one
+     * hull that could not reach the point held the raid - and every raid after it - for the
+     * rest of the session (REVIEW.md, finding 13).
+     */
+    fun gather(delta: Float, alive: Collection<AiShip>, tolerance: Float): Gathering {
+        if (formedUp(alive, tolerance)) return Gathering.SET_OUT
+        gatherSecondsLeft -= delta
+        if (gatherSecondsLeft > 0f) return Gathering.WAITING
+        val arrived = band.filter { it in alive && it.position.dst(rallyPoint) <= tolerance }
+        if (arrived.isEmpty()) return Gathering.ABANDONED
+        for (straggler in band.filter { it !in arrived }) release(straggler)
+        band.retainAll(arrived)
+        return Gathering.SET_OUT
+    }
 
     /** Whoever is leading the band right now - the first still afloat. A leader that sinks or is
      *  released must not leave the rest circling an empty patch of sea, so this is resolved fresh

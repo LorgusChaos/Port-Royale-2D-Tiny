@@ -45,7 +45,17 @@ class AiShip(
     override val position: Vector2,
     /** How smartly this hull answers her helm - the same statistic the ship classes carry and
      *  combat already uses. Defaulted so the many tests that build ships by hand need not care. */
-    val maneuverability: Int = 50
+    val maneuverability: Int = 50,
+    /**
+     * A name that stays with this hull for as long as it is afloat.
+     *
+     * Diagnostics used to identify a ship by its index in the fleet list, which shifts every time
+     * anything sinks or respawns - so the watchdog's "report each problem once" rule silently
+     * broke down, one stuck ship was reported under a dozen different names, and forty honest
+     * lines became fourteen hundred. Identity has to outlive the list holding it - and a save:
+     * a ship loaded from one is given back its own id, so who was chasing whom survives a load.
+     */
+    val id: Int = nextId++
 ) : Pilot.Hull {
     /**
      * Damage this hull is carrying. Fights used to be resolved from [maxHull] every time, so a
@@ -53,15 +63,6 @@ class AiShip(
      * navies effectively unsinkable and the escalating-waves rule unreachable. Wear persists here
      * instead, and a ship that has been in the thick of it is genuinely easier to finish.
      */
-    /**
-     * A name that stays with this hull for as long as it is afloat.
-     *
-     * Diagnostics used to identify a ship by its index in the fleet list, which shifts every time
-     * anything sinks or respawns - so the watchdog's "report each problem once" rule silently
-     * broke down, one stuck ship was reported under a dozen different names, and forty honest
-     * lines became fourteen hundred. Identity has to outlive the list holding it.
-     */
-    val id: Int = nextId++
 
     var currentHull: Int = maxHull
 
@@ -227,8 +228,9 @@ class AiShip(
             AiShipRole.MILITARY -> "${faction?.displayName} Warship"
         }
 
-    private companion object {
-        /** Monotonic, never reused within a session - see [id]. */
+    internal companion object {
+        /** Monotonic, never reused within a session - see [id]. A load sets it past every saved
+         *  ship's id (WorldSave), so a ship spawned after a load never takes one already at sea. */
         var nextId: Int = 1
     }
 }

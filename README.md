@@ -3,18 +3,19 @@
 A small 2D hybrid of *Port Royale* and *Space Trader* - Caribbean trade, piracy, and naval
 combat, deliberately kept small in scope for a solo/hobby project.
 
-> **Status: v0.4.6.0 - early prototype.** Sailing, trading with a living dynamic market, random
+> **Status: v0.4.6.1 - early prototype.** Sailing, trading with a living dynamic market, random
 > sea events, ship upgrades, combat, historical factions with reputation, a living map of AI
 > ships that actually hunt down a target they've spotted, a small hired fleet of captains who
 > fight/flee/evade for themselves, warehouses/property, loans, autosave, audio, and a full main
-> menu with save/load are all playable in a rough form, now under a hand-painted HUD and
-> painted city windows; art and content breadth are still early.
+> menu with full save/load (the whole sea is saved, and a load carries on from the same moment)
+> are all playable in a rough form, under a hand-painted HUD and painted city windows; art and
+> content breadth are still early.
 > See [Roadmap](#roadmap).
 
 Inspired by *Port Royale* and *Space Trader* - not affiliated with or endorsed by either
 franchise's creators or publishers.
 
-## What's here in v0.4.6.0
+## What's here in v0.4.6.1
 
 - A hand-painted map of the Caribbean - jungle, mountain ridges, sandy shores and a turquoise
   shallow-water band along every coast - drawn over the real geography rather than an
@@ -137,9 +138,12 @@ franchise's creators or publishers.
   + mute).
 - A main menu: **New Game** (name your captain), **Load**, **Save**, **Settings** (audio,
   fullscreen toggle, resolution), and **Exit**. `Esc` pauses and reopens the same menu mid-game,
-  resuming exactly where play left off. Saves and settings persist as JSON files under the user's
-  home directory; the game also autosaves every 10 minutes, and save/load lists show each save's
-  date and time.
+  resuming exactly where play left off. A save holds the whole game - the player's state and the
+  sea around them: every AI ship at its task, a raid on its clock, the sea events, the player's
+  course - so a load carries on from the same moment. Saves are written whole or not at all, with
+  the previous version kept as a backup, and saving is closed during a fight. Saves and settings
+  persist as JSON files under the user's home directory; the game also autosaves every 10 minutes,
+  and save/load lists show each save's date and time.
 - New hand-painted ship and city-menu icon art (AI-generated): 5 ship tiers x 6 colors (white for
   the player, black for pirates, one color per colonial faction) and Market/Shipyard/Warehouse/
   Commandant/Tavern icons. The port hub itself is laid out directly over a matching AI-generated
@@ -425,16 +429,18 @@ order.
 
 ## Credits
 
-- The base map is [*Middle America relief location
+- The map and its land/sea mask were made for this project (the map painted with an AI image
+  model), using [*Middle America relief location
   map*](https://commons.wikimedia.org/wiki/File:Middle_America_relief_location_map.png) by Uwe
-  Dedering, licensed [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/deed.en).
+  Dedering ([CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/deed.en)) as the
+  reference for the coastline.
 - Ship sprites (5 tiers x 6 colors), city-menu icons (Market/Shipyard/Warehouse/Commandant/
   Tavern), the four city-window frames (port hub, market, shipyard, tavern), the painted HUD
   chrome (minimap frame, gold and calendar boards, reputation panel, ship cards, buttons) and the
   goods/gold/cargo icons are AI-generated, with no identifiable human author/rights-holder to
   credit.
-- Tile sprites (currently unused) and an earlier, now-replaced set of ship sprites are from
-  Kenney's [*Pirate Pack*](https://kenney.nl/assets/pirate-pack)
+- The ship's boat sprite, and an earlier ship set and tiles kept under `art-src/legacy/` (not
+  shipped), are from Kenney's [*Pirate Pack*](https://kenney.nl/assets/pirate-pack)
   ([CC0](https://creativecommons.org/publicdomain/zero/1.0/)).
 - The UI font is [*Cormorant Garamond*](https://fonts.google.com/specimen/Cormorant+Garamond)
   ([SIL OFL 1.1](https://openfontlicense.org/)).

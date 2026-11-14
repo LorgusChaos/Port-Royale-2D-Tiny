@@ -4,6 +4,9 @@ import com.portroyale.tiny.economy.DEFAULT_LEG_MINUTES
 import com.portroyale.tiny.economy.Good
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.ships.ShipTypes
+import com.badlogic.gdx.math.Vector2
+import com.portroyale.tiny.economy.Player
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -14,9 +17,9 @@ import kotlin.test.assertTrue
 
 /**
  * Covers SaveManager's pure resolve* half - turning the flat JSON POJOs back into real game
- * objects. Reading and writing the files themselves needs Gdx.files (a live backend), so that is
- * left to actually running the game; these are the functions where a silent mistake corrupts a
- * player's save instead of crashing, which is exactly why they are worth pinning down.
+ * objects - and the file itself, written and read through plain java.io in a temporary folder
+ * (only finding the saves folder needs Gdx.files). These are the functions where a silent mistake
+ * corrupts a player's save instead of crashing, which is exactly why they are worth pinning down.
  *
  * Backward compatibility with older save formats is a first-class concern here: every "a save
  * written before X" test is guarding a real upgrade path.
@@ -390,6 +393,82 @@ class SaveManagerTest {
         assertTrue(SaveManager.resolveOwnedShips(GameSaveData()).isEmpty())
     }
 
+    // --- typed save names ---
+    // The typed name becomes a file path, so anything that would leave the saves folder, break
+    // the write on Windows, or overwrite the autosave must not survive (REVIEW.md, finding 16).
+
+    private fun assertSavedAs(expected: String, typed: String) =
+        assertEquals(SaveNameCheck.Ok(expected), SaveManager.checkSaveName(typed), "typed \"$typed\"")
+
+    private fun assertRejected(typed: String) =
+        assertTrue(SaveManager.checkSaveName(typed) is SaveNameCheck.Rejected, "typed \"$typed\" should be rejected")
+
+    @Test
+    fun `an ordinary save name is kept exactly as typed`() {
+        assertSavedAs("Before the storm", "Before the storm")
+        assertSavedAs("run_2-final", "run_2-final")
+    }
+
+    @Test
+    fun `a cyrillic save name is kept exactly as typed`() {
+        assertSavedAs("Перед штормом", "Перед штормом")
+    }
+
+    @Test
+    fun `a save name cannot climb out of the saves folder`() {
+        assertSavedAs("settings", "../settings")
+        assertRejected("..")
+    }
+
+    @Test
+    fun `a save name cannot reach into a subfolder`() {
+        assertSavedAs("ab", "a/b")
+        assertSavedAs("ab", "a\\b")
+    }
+
+    @Test
+    fun `characters Windows forbids in file names are dropped`() {
+        assertSavedAs("ab", "a:b")
+        assertSavedAs("1230", "12:30")
+        assertSavedAs("what", "what?")
+        assertSavedAs("abc", "a*b|c")
+        assertSavedAs("quoted", "\"<quoted>\"")
+        assertRejected("???")
+    }
+
+    @Test
+    fun `names Windows reserves for devices are rejected in any case`() {
+        for (typed in listOf("CON", "con", "PRN", "AUX", "NUL", "COM1", "com9", "LPT1", "LPT9", "CON."))
+            assertRejected(typed)
+    }
+
+    @Test
+    fun `a name that only looks like a device name is fine`() {
+        assertSavedAs("CONVOY", "CONVOY")
+        assertSavedAs("COM10", "COM10")
+    }
+
+    @Test
+    fun `a blank save name is rejected`() {
+        assertRejected("")
+        assertRejected("    ")
+    }
+
+    @Test
+    fun `a manual save cannot take the autosave's name`() {
+        assertRejected("autosave")
+        assertRejected("AutoSave")
+        assertRejected(" autosave ")
+    }
+
+    @Test
+    fun `a save name never ends in a dot or a space`() {
+        // Windows silently strips both, so "name." would land on top of "name".
+        assertSavedAs("name", "name.")
+        assertSavedAs("name", "name .")
+        assertSavedAs("name", "  name  ")
+    }
+
     // --- defaults ---
 
     @Test
@@ -402,5 +481,142 @@ class SaveManagerTest {
         assertEquals(0f, data.gameClockMinutes)
         assertTrue(data.captains.isEmpty())
         assertTrue(data.ownedShips.isEmpty())
+    }
+
+    // --- the file: written whole or not at all, and a damaged one said so (REVIEW.md, finding 19) ---
+
+    private fun tempDir(): File = kotlin.io.path.createTempDirectory("prt-save-test").toFile().also { it.deleteOnExit() }
+
+    private fun saveText(captainName: String): String =
+        SaveManager.toJson(SaveManager.snapshot(captainName, Player(), Vector2(10f, 20f), null))
+
+    private fun loadedName(result: LoadResult): String {
+        assertTrue(result is LoadResult.Loaded, "not loaded: ${(result as? LoadResult.Failed)?.reason}")
+        return result.data.captainName
+    }
+
+    @Test
+    fun `a save leaves no half-written file behind and reads back`() {
+        val dir = tempDir()
+        val file = File(dir, "voyage.json")
+
+        SaveManager.writeSaveFile(file, saveText("Anne"))
+
+        assertEquals(listOf("voyage.json"), dir.list()!!.sorted())
+        assertEquals("Anne", loadedName(SaveManager.readSaveFile(file)))
+    }
+
+    @Test
+    fun `saving over a save keeps the one before it as a backup`() {
+        val dir = tempDir()
+        val file = File(dir, "voyage.json")
+
+        SaveManager.writeSaveFile(file, saveText("First"))
+        SaveManager.writeSaveFile(file, saveText("Second"))
+
+        assertEquals("Second", loadedName(SaveManager.readSaveFile(file)))
+        assertEquals(listOf("voyage.json", "voyage.json.bak"), dir.list()!!.sorted())
+        assertEquals("First", SaveManager.fromJson(File(dir, "voyage.json.bak").readText(java.nio.charset.Charset.defaultCharset())).captainName)
+    }
+
+    @Test
+    fun `a cut-off save with nothing to fall back on is refused, not thrown`() {
+        val file = File(tempDir(), "voyage.json")
+        file.writeText(saveText("Anne").take(40))
+
+        val result = SaveManager.readSaveFile(file)
+
+        assertTrue(result is LoadResult.Failed, "a cut-off file loaded")
+    }
+
+    @Test
+    fun `a cut-off save falls back to the copy before it and says so`() {
+        val file = File(tempDir(), "voyage.json")
+        SaveManager.writeSaveFile(file, saveText("First"))
+        SaveManager.writeSaveFile(file, saveText("Second"))
+        file.writeText(saveText("Second").take(40))
+
+        val result = SaveManager.readSaveFile(file)
+
+        assertEquals("First", loadedName(result))
+        assertTrue((result as LoadResult.Loaded).fromBackup, "the fallback was not owned up to")
+    }
+
+    // --- the castaway is part of the save (REVIEW.md, finding 12) ---
+
+    @Test
+    fun `a passenger's destination survives a save and a load`() {
+        val data = SaveManager.fromJson(SaveManager.toJson(SaveManager.snapshot("T", Player(), Vector2(), "Havana")))
+        assertEquals("Havana", SaveManager.resolvePassenger(data.passengerPort, listOf("Havana", "Nassau")))
+    }
+
+    @Test
+    fun `a save written before passengers were saved has nobody aboard`() {
+        assertNull(SaveManager.resolvePassenger(GameSaveData().passengerPort, listOf("Havana")))
+        assertNull(SaveManager.resolvePassenger(SaveManager.snapshot("T", Player(), Vector2(), null).passengerPort, listOf("Havana")))
+    }
+
+    @Test
+    fun `a passenger bound for a port the game no longer has is not aboard`() {
+        assertNull(SaveManager.resolvePassenger("Atlantis", listOf("Havana", "Nassau")))
+    }
+
+    // --- the active hull comes back afloat and within bounds (REVIEW.md, finding 14) ---
+
+    @Test
+    fun `an active hull saved at zero or below loads afloat`() {
+        assertEquals(1, SaveManager.resolveActiveHull(0, 100))
+        assertEquals(1, SaveManager.resolveActiveHull(-5, 100))
+    }
+
+    @Test
+    fun `an active hull saved above the ship's maximum loads at the maximum`() {
+        assertEquals(100, SaveManager.resolveActiveHull(250, 100))
+    }
+
+    @Test
+    fun `an active hull within bounds loads as saved`() {
+        assertEquals(42, SaveManager.resolveActiveHull(42, 100))
+    }
+
+    // --- an edited or damaged save stays within bounds (REVIEW.md, finding 38) ---
+
+    @Test
+    fun `a docked ship's condition outside its bounds comes back within them`() {
+        val data = GameSaveData()
+        data.ownedShips.add(OwnedShipSaveEntry().apply {
+            id = 2; name = "Runner"; shipTypeName = "Cutter"; dockedAt = "Havana"
+            currentHull = 9999; fouling = 7f; cannonLevel = 99; oarLevel = -3; sailLevel = 50
+        })
+
+        val ship = SaveManager.resolveOwnedShips(data).single()
+
+        assertEquals(ShipTypes.CUTTER.maxHull, ship.condition.currentHull)
+        assertEquals(1f, ship.condition.fouling)
+        assertEquals(com.portroyale.tiny.ships.MAX_UPGRADE_LEVEL, ship.condition.cannonLevel)
+        assertEquals(0, ship.condition.oarLevel)
+        assertEquals(com.portroyale.tiny.ships.MAX_UPGRADE_LEVEL, ship.condition.sailLevel)
+    }
+
+    @Test
+    fun `an active ship id that is not in the fleet falls back to the first ship`() {
+        val data = GameSaveData()
+        data.activeShipId = 9
+        for (shipId in listOf(3, 5)) {
+            data.ownedShips.add(OwnedShipSaveEntry().apply { id = shipId; name = "S$shipId"; shipTypeName = "Sloop"; dockedAt = "Havana" })
+        }
+
+        assertEquals(3, SaveManager.resolveActiveShipId(data, SaveManager.resolveOwnedShips(data)))
+    }
+
+    @Test
+    fun `an active ship id that is in the fleet is kept`() {
+        val data = GameSaveData()
+        data.activeShipId = 5
+        for (shipId in listOf(3, 5)) {
+            data.ownedShips.add(OwnedShipSaveEntry().apply { id = shipId; name = "S$shipId"; shipTypeName = "Sloop"; dockedAt = "Havana" })
+        }
+
+        assertEquals(5, SaveManager.resolveActiveShipId(data, SaveManager.resolveOwnedShips(data)))
     }
 }

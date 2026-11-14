@@ -39,13 +39,18 @@ class EventToastUI {
     private val choiceRow = Table()
     private val primaryButton = TextButton("", skin)
     private val secondaryButton = TextButton("", skin)
-    private var onPrimary: (() -> Unit)? = null
-    private var onSecondary: (() -> Unit)? = null
+
+    /** What one toast shows; the button labels are used by a choice only. */
+    private class Content(val message: String, val icon: Texture, val primaryLabel: String = "", val secondaryLabel: String = "")
+
+    /** Everything waiting to be shown, the head on screen - a new message no longer replaces an
+     *  open one (REVIEW.md, finding 20). */
+    private val queue = ToastQueue<Content>()
 
     /** True while a message is on screen - PortRoyaleGame freezes ship/world simulation for as
      *  long as this holds, so an event can't sneak in extra unread time while sailing continues
      *  underneath it. */
-    val isShowing: Boolean get() = box.isVisible
+    val isShowing: Boolean get() = queue.isShowing
 
     init {
         label.setWrap(true)
@@ -58,7 +63,8 @@ class EventToastUI {
 
         closeButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                box.isVisible = false
+                queue.dismiss()
+                showHead()
             }
         })
         val headerRow = Table()
@@ -71,14 +77,14 @@ class EventToastUI {
 
         primaryButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                box.isVisible = false
-                onPrimary?.invoke()
+                queue.choose(primary = true)
+                showHead()
             }
         })
         secondaryButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                box.isVisible = false
-                onSecondary?.invoke()
+                queue.choose(primary = false)
+                showHead()
             }
         })
         choiceRow.add(primaryButton).width(160f).pad(4f)
@@ -96,14 +102,8 @@ class EventToastUI {
     /** Plain one-button notification - unchanged behavior for every existing caller (sea events,
      *  combat results, loan-overdue, the warehouse tip). */
     fun show(message: String, iconTexture: Texture) {
-        label.setText(message)
-        icon.drawable = TextureRegionDrawable(TextureRegion(iconTexture))
-        icon.isVisible = true
-        box.isVisible = true
-        closeButton.isVisible = true
-        choiceRow.isVisible = false
-        onPrimary = null
-        onSecondary = null
+        queue.add(ToastNotice(Content(message, iconTexture)))
+        showHead()
     }
 
     /** Two-button notification: [primaryLabel]/[onPrimary] and [secondaryLabel]/[onSecondary]
@@ -116,16 +116,35 @@ class EventToastUI {
         secondaryLabel: String,
         onSecondary: () -> Unit
     ) {
-        label.setText(message)
-        icon.drawable = TextureRegionDrawable(TextureRegion(iconTexture))
+        queue.add(ToastChoice(Content(message, iconTexture, primaryLabel, secondaryLabel), onPrimary, onSecondary))
+        showHead()
+    }
+
+    /** Drops everything pending - a new game or a load starts with no message from the last. */
+    fun clear() {
+        queue.clear()
+        showHead()
+    }
+
+    /** Puts the head of the queue on screen, or hides the box when nothing is waiting. */
+    private fun showHead() {
+        val head = queue.current
+        if (head == null) {
+            box.isVisible = false
+            return
+        }
+        val content = head.payload
+        label.setText(content.message)
+        icon.drawable = TextureRegionDrawable(TextureRegion(content.icon))
         icon.isVisible = true
         box.isVisible = true
-        closeButton.isVisible = false
-        choiceRow.isVisible = true
-        primaryButton.setText(primaryLabel)
-        secondaryButton.setText(secondaryLabel)
-        this.onPrimary = onPrimary
-        this.onSecondary = onSecondary
+        val isChoice = head is ToastChoice
+        closeButton.isVisible = !isChoice
+        choiceRow.isVisible = isChoice
+        if (isChoice) {
+            primaryButton.setText(content.primaryLabel)
+            secondaryButton.setText(content.secondaryLabel)
+        }
     }
 
     fun render(delta: Float) {

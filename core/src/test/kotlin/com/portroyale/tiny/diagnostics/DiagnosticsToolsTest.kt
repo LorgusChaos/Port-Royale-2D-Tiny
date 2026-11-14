@@ -123,6 +123,27 @@ class WorldWatchdogTest {
         assertEquals("pirate-3 is stuck", reports.single())
     }
 
+    /** REVIEW.md, finding 6: a sweep every five seconds must not be able to end the session. */
+    @Test
+    fun `a check that throws is reported once and the sweeps go on`() {
+        val reports = mutableListOf<String>()
+        val watchdog = WorldWatchdog(intervalSeconds = 1f) { reports.add(it) }
+        var sweeps = 0
+
+        repeat(3) {
+            watchdog.update(1f) { reporter ->
+                sweeps++
+                reporter.problem("ship/aground") { "ship aground" }
+                error("boom")
+            }
+        }
+
+        assertEquals(3, sweeps, "a failed sweep stopped the ones after it")
+        assertEquals(2, reports.size, "$reports")
+        assertTrue(reports.any { "boom" in it }, "the failure was not reported: $reports")
+        assertTrue(reports.any { it == "ship aground" }, "what the sweep found before failing was lost: $reports")
+    }
+
     @Test
     fun `a problem that clears and returns is reported again`() {
         val reports = mutableListOf<String>()

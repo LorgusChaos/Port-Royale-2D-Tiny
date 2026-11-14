@@ -24,7 +24,8 @@ const val MAX_ENEMY_MISS_CHANCE = 0.5f
 class CombatState(
     private val player: Player,
     private val playerStats: ShipCombatant,
-    private val enemy: ShipCombatant
+    private val enemy: ShipCombatant,
+    private val onEnemyHullChanged: (Int) -> Unit = {}
 ) {
     val enemyName = enemy.name
     val playerMaxHull = playerStats.maxHull
@@ -44,8 +45,15 @@ class CombatState(
             field = value
             player.condition.currentHull = value
         }
-    var enemyHull = enemyMaxHull
-        private set
+    // The hull the enemy actually has, not a fresh one: a pirate a warship or a captain has
+    // already mauled comes to this fight mauled - the rule FleetCombatResolver already keeps -
+    // and what the player does to it is handed back out, so it leaves a fight the player ran
+    // from still mauled (REVIEW.md, finding 2). At least 1: a ship at 0 has already sunk.
+    var enemyHull = enemy.currentHull.coerceIn(1, enemyMaxHull)
+        private set(value) {
+            field = value
+            onEnemyHullChanged(value)
+        }
 
     var outcome = CombatOutcome.ONGOING
         private set

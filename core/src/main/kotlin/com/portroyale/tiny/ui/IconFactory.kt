@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.Pixmap
 import com.badlogic.gdx.graphics.Texture
 import com.portroyale.tiny.economy.Good
+import com.portroyale.tiny.world.ToastIcon
 
 /** Small hand-drawn pictograms (Pixmap primitives only, no external art dependency) used as
  *  icons in the port hub and its sub-screens. Every icon gets a 1px dark outline traced
@@ -55,6 +56,17 @@ object IconFactory {
      *  missing one (the path is built at runtime), but the market screen will, loudly. */
     fun iconFor(good: Good): Texture =
         goodIcons.getOrPut(good) { buildArtIcon("sprites/goods/${good.name.lowercase()}.png") }
+
+    /** The picture for a toast the world raised - the world names the icon (it may not load a
+     *  texture, see GameWorld), this is where the name becomes a picture. */
+    fun iconFor(icon: ToastIcon): Texture = when (icon) {
+        ToastIcon.Coin -> coin
+        ToastIcon.Bottle -> bottle
+        ToastIcon.Castaway -> castaway
+        ToastIcon.Debt -> debt
+        ToastIcon.Property -> property
+        is ToastIcon.Cargo -> iconFor(icon.good)
+    }
 
     /** A simple procedural bust portrait for a hired-captain candidate (see TavernUI) - [seed]
      *  (e.g. the candidate's own name.hashCode()) deterministically picks skin/hair/coat color so

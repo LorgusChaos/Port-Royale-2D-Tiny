@@ -32,6 +32,27 @@ class GameClockTest {
         assertEquals(10f, GameClock.totalGameMinutes, 0.001f)
     }
 
+    // One real minute at 60 frames/s on 1x. Late in a game a single frame's step is smaller
+    // than half the gap between neighbouring Float values, so a Float accumulator rounds every
+    // step away and the clock stands still (REVIEW.md, finding 1).
+    private fun runOneRealMinuteAt60Fps() = repeat(3_600) { GameClock.update(1f / 60f) }
+
+    @Test
+    fun `the clock keeps running at normal speed past day forty-six`() {
+        val start = 70_000f // day 49
+        GameClock.restore(start)
+        runOneRealMinuteAt60Fps()
+        assertEquals(10f, GameClock.totalGameMinutes - start, Math.ulp(start))
+    }
+
+    @Test
+    fun `the clock keeps running at normal speed two years into a game`() {
+        val start = 1_000_000f // day 695
+        GameClock.restore(start)
+        runOneRealMinuteAt60Fps()
+        assertEquals(10f, GameClock.totalGameMinutes - start, Math.ulp(start))
+    }
+
     @Test
     fun `a real-world span converts to game minutes and back again`() {
         val gameMinutes = GameClock.realSecondsToGameMinutes(144f)

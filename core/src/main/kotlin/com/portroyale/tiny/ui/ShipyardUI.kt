@@ -53,6 +53,8 @@ class ShipyardUI(
     private lateinit var namingOverlay: Table
     private lateinit var namingPrompt: Label
     private lateinit var nameField: TextField
+    private lateinit var reasonLabel: Label
+    private var refusalReason = ""
     private var currentPort = ""
     private var pendingShipType: ShipType? = null
 
@@ -65,6 +67,7 @@ class ShipyardUI(
     fun open(portName: String) {
         currentPort = portName
         pendingShipType = null
+        refusalReason = ""
         refresh()
     }
 
@@ -98,6 +101,10 @@ class ShipyardUI(
         panel.add(frame.bodyLabel(Align.center).apply { setText("Ships for sale") })
             .growX().height(HEADER_H).row()
 
+        // Why the last Buy press was refused; empty otherwise.
+        reasonLabel = frame.bodyLabel(Align.center)
+        panel.add(reasonLabel).growX().row()
+
         shipGrid = Table()
         for (shipType in ShipTypes.ALL) {
             shipGrid.add(buildShipCard(shipType)).top().width(CARD_W).pad(CARD_PAD)
@@ -122,8 +129,12 @@ class ShipyardUI(
         overlay.add(nameField).colspan(2).width(320f).height(BUTTON_H).padBottom(18f).row()
         overlay.add(frame.button("Confirm") {
             val shipType = pendingShipType ?: return@button
-            AudioManager.playCoins()
-            player.buyShip(shipType, nameField.text, currentPort)
+            if (player.buyShip(shipType, nameField.text, currentPort)) {
+                AudioManager.playCoins()
+                refusalReason = ""
+            } else {
+                refusalReason = refusalFor(shipType)
+            }
             pendingShipType = null
             refresh()
         }).width(150f).height(BUTTON_H).pad(6f)
@@ -155,13 +166,27 @@ class ShipyardUI(
             if (player.canBuyShip(shipType)) {
                 val owned = player.ownedShips.count { it.shipType == shipType }
                 pendingShipType = shipType
+                refusalReason = ""
                 nameField.text = if (owned == 0) shipType.name else "${shipType.name} ${owned + 1}"
                 refresh()
                 stage.keyboardFocus = nameField
+            } else {
+                refusalReason = refusalFor(shipType)
+                refresh()
             }
         }).width(CARD_W - 16f).height(BUTTON_H).row()
 
         return card
+    }
+
+    /** Why [shipType] cannot be bought right now: gold first, then the hold (the same refusal
+     *  FleetDockUI explains for a swap - the cargo has to fit the new hull). */
+    private fun refusalFor(shipType: ShipType): String = when {
+        player.gold < shipType.price -> "Not enough gold for the ${shipType.name} (${shipType.price}g)"
+        !player.cargoFitsOn(shipType) ->
+            "Your ${player.cargoUsed} units of cargo will not fit in the ${shipType.name}'s " +
+                "${shipType.cargoCapacity}-unit hold"
+        else -> "The ${shipType.name} cannot be bought right now"
     }
 
     private fun refresh() {
@@ -171,6 +196,9 @@ class ShipyardUI(
         val naming = pendingShipType != null
         shipGrid.isVisible = !naming
         namingOverlay.isVisible = naming
+        // A hidden field must not keep swallowing keystrokes (REVIEW.md, finding "focus").
+        if (!naming) stage.keyboardFocus = null
+        reasonLabel.setText(refusalReason)
         val pending = pendingShipType
         if (pending != null) namingPrompt.setText("Name your new ${pending.name}:")
         for ((shipType, label) in shipStatusLabels) {

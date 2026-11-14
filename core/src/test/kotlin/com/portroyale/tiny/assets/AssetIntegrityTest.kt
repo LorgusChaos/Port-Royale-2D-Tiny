@@ -65,6 +65,46 @@ class AssetIntegrityTest {
         assertTrue(missing.isEmpty(), "Referenced in code but not in assets/: $missing")
     }
 
+    // --- NOTICE credits what ships, and names only what exists (REVIEW.md, finding 24) ---
+
+    private val notice: String get() = File("../NOTICE").readText()
+
+    /** Every `assets/...` or `art-src/...` path NOTICE names, as written: a file, a folder (ending
+     *  in a slash) or a pattern with a star. */
+    private fun noticedPaths(): List<String> =
+        Regex("""(?<![\w./:-])(?:assets|art-src)/[^\s,()]+""").findAll(notice).map { it.value.trimEnd('.') }.toList()
+
+    private fun exists(path: String): Boolean {
+        val file = File("..", path)
+        return when {
+            path.endsWith("/") -> file.isDirectory
+            '*' in path -> {
+                val pattern = Regex(file.name.split('*').joinToString(".*") { Regex.escape(it) })
+                file.parentFile.listFiles()?.any { pattern.matches(it.name) } == true
+            }
+            else -> file.isFile
+        }
+    }
+
+    @Test
+    fun `every path NOTICE names exists`() {
+        val missing = noticedPaths().filterNot(::exists)
+        assertTrue(noticedPaths().isNotEmpty(), "NOTICE names no files at all")
+        assertTrue(missing.isEmpty(), "NOTICE names files that are not there: $missing")
+    }
+
+    @Test
+    fun `every third-party file that ships is credited in NOTICE`() {
+        val shipped = listOf("maps", "audio", "fonts").flatMap { folder ->
+            File(assetsDir, folder).walkTopDown().filter { it.isFile }
+                .map { "assets/" + it.relativeTo(assetsDir).invariantSeparatorsPath }.toList()
+        }
+        val text = notice
+        val uncredited = shipped.filterNot { it in text }.sorted()
+        assertTrue(shipped.isNotEmpty(), "no assets found under ${assetsDir.absolutePath}")
+        assertTrue(uncredited.isEmpty(), "shipped without a word in NOTICE: $uncredited")
+    }
+
     @Test
     fun `source sheets and mockups live in art-src, not in the shipped assets`() {
         // assets/ is the jar's resource root (lwjgl3/build.gradle), so anything left here ships.

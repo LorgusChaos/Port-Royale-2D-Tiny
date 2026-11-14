@@ -9,8 +9,15 @@ license and remain under their own terms.
 Third-party assets
 ================================================================================
 
-assets/maps/caribbean_relief.png
+assets/maps/caribbean.jpg, assets/maps/caribbean_mask.png
 
+  Made for this project. caribbean.jpg, the map the player sees, was painted
+  with an AI image model by the project owner; caribbean_mask.png, the land/sea
+  mask the game sails on (white = sea), was drawn to match that painting.
+  Neither file contains any part of another work.
+
+  The painting used this map only as a reference for the coastline, and the
+  source is named here as a courtesy:
   "Middle America relief location map"
   Author:  Uwe Dedering
   Source:  Wikimedia Commons
@@ -18,13 +25,10 @@ assets/maps/caribbean_relief.png
   License: Creative Commons Attribution-Share Alike 3.0 Unported (CC BY-SA 3.0)
            https://creativecommons.org/licenses/by-sa/3.0/deed.en
 
-  This file (and any modified/derivative version of it) remains under
-  CC BY-SA 3.0: redistribution requires attribution to Uwe Dedering, and
-  derivative works must be shared under the same or a compatible license.
-
-assets/sprites/tiles/, and assets/sprites/ships/ship_*.png, dinghy*.png
-(an earlier, now-unused ship sprite set, kept in the repo but no longer
-referenced by any code)
+assets/sprites/ships/dinghyLarge1.png (the ship's boat), and
+art-src/legacy/kenney-ships/, art-src/legacy/kenney-tiles/ (an earlier ship
+sprite set and its tiles, no longer used by the game: kept in the repository,
+not shipped)
 
   "Pirate Pack"
   Author:  Kenney Vleugels (www.kenney.nl)

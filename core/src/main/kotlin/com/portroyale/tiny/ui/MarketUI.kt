@@ -35,6 +35,7 @@ private const val ROW_H = 52f
  *  plate stretched to a taller cell would just look stretched. */
 private const val BUTTON_H = 36f
 private const val BUTTON_FONT_SCALE = 0.72f
+private const val LIVE_TEXT_INTERVAL = 0.25f
 
 /** Goods market sub-screen: buy/sell one unit at a time. Price = port's historical bias x
  *  current supply/demand (MarketState) x buy/sell spread x reputation with the port's faction -
@@ -57,6 +58,7 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
     private val notabilityFrames = mutableMapOf<Good, Image>()
     private var currentPort = ""
     private var portFaction: Faction? = null
+    private var liveTextTimer = 0f
 
     // Same visual language as the map's surplus/shortage icons (see IconFactory) - built once
     // and reused rather than re-wrapped every refresh().
@@ -76,6 +78,13 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
     }
 
     fun render(delta: Float) {
+        // Prices drift while game time runs, so the shown numbers follow the live state every
+        // 0.25 s of real time instead of only on open and after a trade (REVIEW.md, finding 21).
+        liveTextTimer += delta
+        if (liveTextTimer >= LIVE_TEXT_INTERVAL) {
+            liveTextTimer = 0f
+            if (currentPort.isNotEmpty()) updateTexts()
+        }
         stage.viewport.apply()
         stage.act(delta)
         stage.draw()
@@ -121,13 +130,12 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
 
             val buyButton = frame.plateButton("Buy", "button_buy", BUTTON_FONT_SCALE) {
                 val price = buyPrice(good)
-                if (player.canBuy(price)) {
-                    player.buy(good, price)
+                if (player.buy(good, price)) {
                     MarketState.onBuy(currentPort, good)
                     // Buying takes no side and so moves no reputation - see Player.recordSale.
                     AudioManager.playCoins()
-                    refresh()
                 }
+                refresh()
             }
             panel.add(buyButton).width(BUY_COL - CELL_PAD).height(BUTTON_H).padRight(CELL_PAD)
 
@@ -149,13 +157,12 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
 
             val sellButton = frame.plateButton("Sell", "button_sell", BUTTON_FONT_SCALE) {
                 val price = sellPrice(good)
-                if (player.canSell(good)) {
-                    player.sell(good, price)
+                if (player.sell(good, price)) {
                     MarketState.onSell(currentPort, good)
                     player.recordSale(portFaction, price)
                     AudioManager.playCoins()
-                    refresh()
                 }
+                refresh()
             }
             panel.add(sellButton).width(SELL_COL - CELL_PAD).height(BUTTON_H).padRight(CELL_PAD)
 
@@ -185,6 +192,12 @@ class MarketUI(private val player: Player, private val onBack: () -> Unit) {
 
     private fun refresh() {
         frame.setTitle("Market")
+        updateTexts()
+    }
+
+    /** Only sets texts on the existing labels - no table rebuild, no new actors - so it is cheap
+     *  enough for the live timer in [render] as well as for [refresh]. */
+    private fun updateTexts() {
         frame.setStatus(currentPort, player.gold, player.cargoUsed to player.cargoCapacity)
         val faction = portFaction
         standingLabel.setText(

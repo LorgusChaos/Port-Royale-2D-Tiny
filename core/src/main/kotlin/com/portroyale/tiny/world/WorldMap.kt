@@ -200,7 +200,14 @@ class WorldMap(
         avoidRadiusWorld: Float = 0f
     ): List<Vector2>? {
         if (avoid == null || avoidRadiusWorld <= 0f) return findPathInternal(startWorld, endWorld, null, 0f)
-        return findPathInternal(startWorld, endWorld, avoid, avoidRadiusWorld)
+        // A start already inside the circle made the avoiding search impossible, and the fallback
+        // below then laid the course straight at the threat (REVIEW.md, finding 5). Sailing out
+        // must be allowed: the circle shrinks to a cell inside where the ship already is - it may
+        // not close the threat any further - and only when nothing is left does it go without.
+        val fromStart = startWorld.dst(avoid)
+        val radius = if (fromStart <= avoidRadiusWorld) fromStart - cellSize else avoidRadiusWorld
+        if (radius <= 0f) return findPathInternal(startWorld, endWorld, null, 0f)
+        return findPathInternal(startWorld, endWorld, avoid, radius)
             ?: findPathInternal(startWorld, endWorld, null, 0f)
     }
 
@@ -219,6 +226,11 @@ class WorldMap(
      * a search number instead of being cleared, so the cost of a route is the search itself and
      * nothing else.
      */
+    /** How many cells the last search opened - the work it did, which, unlike the time it took,
+     *  is the same on every machine (REVIEW.md, finding 26). */
+    var lastSearchExpanded = 0
+        private set
+
     private fun findPathInternal(
         startWorld: Vector2,
         endWorld: Vector2,
@@ -239,6 +251,7 @@ class WorldMap(
             return dx * dx + dy * dy > avoidRadiusSq
         }
 
+        lastSearchExpanded = 0
         if (!passable(goal.gx, goal.gy) || !passable(start.gx, start.gy)) return null
         if (start == goal) return listOf(endWorld.cpy())
 
@@ -257,11 +270,15 @@ class WorldMap(
             if (closedStamp[currentIndex] == searchStamp) continue
             closedStamp[currentIndex] = searchStamp
             if (currentIndex == goalIndex) {
+                lastSearchExpanded = expanded
                 return reconstruct(currentIndex, endWorld, avoid, avoidRadiusWorld)
             }
             // A goal behind a closed coast would otherwise mean walking every square of open
             // water in the Caribbean before admitting defeat.
-            if (++expanded > MAX_EXPANSIONS) return null
+            if (++expanded > MAX_EXPANSIONS) {
+                lastSearchExpanded = expanded
+                return null
+            }
 
             val cx = currentIndex % gridW
             val cy = currentIndex / gridW
@@ -287,6 +304,7 @@ class WorldMap(
                 }
             }
         }
+        lastSearchExpanded = expanded
         return null
     }
 

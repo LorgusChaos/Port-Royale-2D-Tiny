@@ -1,7 +1,6 @@
 package com.portroyale.tiny.ui
 
 import com.badlogic.gdx.Gdx
-import com.badlogic.gdx.Graphics
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.scenes.scene2d.Actor
 import com.badlogic.gdx.scenes.scene2d.InputEvent
@@ -41,6 +40,8 @@ class SettingsUI(private val onBack: () -> Unit) {
     private lateinit var updateLabel: Label
     private var resolutionIndex = 1
     private var fullscreen = false
+    /** True while open() moves the slider to the current volume - not a change the player made. */
+    private var syncingSlider = false
 
     init {
         root.setFillParent(true)
@@ -50,7 +51,9 @@ class SettingsUI(private val onBack: () -> Unit) {
     }
 
     fun open() {
+        syncingSlider = true
         volumeSlider.value = AudioManager.masterVolume
+        syncingSlider = false
         updateMuteLabel()
         updateLabel.setText("")
         fullscreen = Gdx.graphics.isFullscreen
@@ -90,7 +93,9 @@ class SettingsUI(private val onBack: () -> Unit) {
         volumeSlider.addListener(object : ChangeListener() {
             override fun changed(event: ChangeEvent?, actor: Actor?) {
                 AudioManager.setMasterVolume(volumeSlider.value)
-                persistSettings()
+                // Applied live, but the file is written only once the drag ends (libGDX fires
+                // one more change on release) - not on every pixel of it (REVIEW.md, finding 36).
+                if (!volumeSlider.isDragging && !syncingSlider) persistSettings()
             }
         })
         panel.add(volumeSlider).width(200f).colspan(2).padBottom(16f).row()
@@ -158,6 +163,7 @@ class SettingsUI(private val onBack: () -> Unit) {
         backButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
                 AudioManager.playClick()
+                persistSettings()
                 onBack()
             }
         })
@@ -167,12 +173,12 @@ class SettingsUI(private val onBack: () -> Unit) {
     }
 
     private fun setFullscreen(value: Boolean) {
-        fullscreen = value
-        if (fullscreen) {
-            val (w, h) = RESOLUTIONS[resolutionIndex]
-            val mode = findDisplayMode(w, h)
-            if (mode != null) Gdx.graphics.setFullscreenMode(mode)
+        if (value) {
+            // The flag and label only turn On once the switch has really happened
+            // (REVIEW.md, finding 23).
+            fullscreen = enterFullscreen()
         } else {
+            fullscreen = false
             Gdx.graphics.setWindowedMode(DEFAULT_WINDOWED_WIDTH, DEFAULT_WINDOWED_HEIGHT)
         }
         updateFullscreenLabel()
@@ -183,17 +189,22 @@ class SettingsUI(private val onBack: () -> Unit) {
     private fun applyResolution() {
         updateResolutionLabel()
         if (fullscreen) {
-            val (w, h) = RESOLUTIONS[resolutionIndex]
-            val mode = findDisplayMode(w, h)
-            if (mode != null) Gdx.graphics.setFullscreenMode(mode)
+            fullscreen = enterFullscreen()
+            updateFullscreenLabel()
+            updateResolutionEnabled()
         }
         persistSettings()
         AudioManager.playClick()
     }
 
-    private fun findDisplayMode(width: Int, height: Int): Graphics.DisplayMode? =
-        Gdx.graphics.displayModes.filter { it.width == width && it.height == height }
-            .maxByOrNull { it.refreshRate }
+    /** Switches to the mode chosen for the selected resolution; true only if the switch happened. */
+    private fun enterFullscreen(): Boolean {
+        val (w, h) = RESOLUTIONS[resolutionIndex]
+        // Highest refresh rate first, so the first exact match is the best one.
+        val available = Gdx.graphics.displayModes.sortedByDescending { it.refreshRate }
+        val mode = chooseDisplayMode(available, w, h, Gdx.graphics.displayMode) { it.width to it.height }
+        return Gdx.graphics.setFullscreenMode(mode)
+    }
 
     private fun updateResolutionLabel() {
         val (w, h) = RESOLUTIONS[resolutionIndex]

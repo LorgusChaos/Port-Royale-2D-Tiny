@@ -133,22 +133,16 @@ class ShipStatusUI(
         cleanLabel = frame.bodyLabel()
         panel.add(cleanLabel).colspan(2).width(NAME_COL + VALUE_COL).height(ACTION_ROW_H).left()
         cleanButton = frame.button("Clean Hull") {
-            if (player.canCleanHull()) {
-                player.cleanHull()
-                AudioManager.playCoins()
-                refresh()
-            }
+            if (player.cleanHull()) AudioManager.playCoins()
+            refresh()
         }
         panel.add(cleanButton).width(BUTTON_COL).height(BUTTON_H).row()
 
         repairLabel = frame.bodyLabel()
         panel.add(repairLabel).colspan(2).width(NAME_COL + VALUE_COL).height(ACTION_ROW_H).left()
         repairButton = frame.button("Repair") {
-            if (player.canRepair()) {
-                player.repair()
-                AudioManager.playCoins()
-                refresh()
-            }
+            if (player.repair()) AudioManager.playCoins()
+            refresh()
         }
         panel.add(repairButton).width(BUTTON_COL).height(BUTTON_H).row()
 
@@ -208,14 +202,13 @@ class ShipStatusUI(
 
     private class UpgradeRow(val levelLabel: Label, val button: TextButton)
 
-    private fun upgradeRow(panel: Table, name: String, onUpgrade: () -> Unit): UpgradeRow {
+    private fun upgradeRow(panel: Table, name: String, onUpgrade: () -> Boolean): UpgradeRow {
         panel.add(frame.bodyLabel().apply { setText(name) })
             .left().width(NAME_COL).height(ACTION_ROW_H)
         val levelLabel = frame.bodyLabel()
         panel.add(levelLabel).left().width(VALUE_COL).height(ACTION_ROW_H)
         val button = frame.button("Upgrade") {
-            onUpgrade()
-            AudioManager.playCoins()
+            if (onUpgrade()) AudioManager.playCoins()
             refresh()
         }
         panel.add(button).width(BUTTON_COL).height(BUTTON_H).row()

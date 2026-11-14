@@ -35,9 +35,10 @@ class MainMenuUI(
         buildLayout()
     }
 
-    fun open(gameActive: Boolean) {
+    /** [canSave] is false during a fight even with a game on (REVIEW.md, finding 14). */
+    fun open(gameActive: Boolean, canSave: Boolean = gameActive) {
         setEnabled(continueButton, gameActive)
-        setEnabled(saveButton, gameActive)
+        setEnabled(saveButton, canSave)
     }
 
     fun render(delta: Float) {

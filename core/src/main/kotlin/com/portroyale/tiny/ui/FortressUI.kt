@@ -12,10 +12,13 @@ import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.economy.LOAN_OFFERS
+import com.portroyale.tiny.economy.Loan
 import com.portroyale.tiny.economy.Player
 import com.portroyale.tiny.factions.Faction
 import com.portroyale.tiny.world.GameClock
 import com.portroyale.tiny.world.Ports
+
+private const val LIVE_TEXT_INTERVAL = 0.25f
 
 /** Commandant's office sub-screen: standing with each colonial power, plus this port's faction
  *  offering a loan (three fixed sums, see LOAN_OFFERS) when the player has none outstanding.
@@ -33,6 +36,9 @@ class FortressUI(private val player: Player, private val onBack: () -> Unit) {
     private lateinit var loanPanel: Table
     private var currentPort = ""
     private var currentFaction: Faction? = null
+    private var loanStatusLabel: Label? = null
+    private var repayButton: TextButton? = null
+    private var liveTextTimer = 0f
 
     init {
         root.setFillParent(true)
@@ -49,6 +55,13 @@ class FortressUI(private val player: Player, private val onBack: () -> Unit) {
     }
 
     fun render(delta: Float) {
+        // A loan can go overdue (and double) while this screen is open, so the amount, the due
+        // time and the Repay button follow the live state every 0.25 s (REVIEW.md, finding 21).
+        liveTextTimer += delta
+        if (liveTextTimer >= LIVE_TEXT_INTERVAL) {
+            liveTextTimer = 0f
+            if (currentPort.isNotEmpty()) updateTexts()
+        }
         stage.viewport.apply()
         stage.act(delta)
         stage.draw()
@@ -101,13 +114,31 @@ class FortressUI(private val player: Player, private val onBack: () -> Unit) {
         root.add(panel)
     }
 
-    private fun refresh() {
+    private fun loanStatusText(loan: Loan): String =
+        if (loan.overdue) {
+            "OVERDUE - you owe ${loan.repayAmount}g"
+        } else {
+            val remainingGameMinutes = (loan.deadlineGameMinutes - GameClock.totalGameMinutes).coerceAtLeast(0f)
+            val remainingRealMinutes = GameClock.gameMinutesToRealMinutes(remainingGameMinutes).toInt()
+            "You owe ${loan.repayAmount}g, due in ${remainingRealMinutes / 60}h ${remainingRealMinutes % 60}m"
+        }
+
+    /** Only sets texts and the Repay button's enabled state on the existing actors - no rebuild -
+     *  so the live timer in [render] can call it as well as [refresh]. */
+    private fun updateTexts() {
         for ((faction, label) in reputationLabels) {
             val value = player.reputation[faction] ?: 0
             label.setText("${player.reputationTier(faction).label} ($value)")
         }
+        val loan = player.loan
+        if (loan != null) loanStatusLabel?.setText(loanStatusText(loan))
+        repayButton?.touchable = if (player.canRepayLoan()) Touchable.enabled else Touchable.disabled
+    }
 
+    private fun refresh() {
         loanPanel.clear()
+        loanStatusLabel = null
+        repayButton = null
         val faction = currentFaction
         val loan = player.loan
 
@@ -116,27 +147,19 @@ class FortressUI(private val player: Player, private val onBack: () -> Unit) {
                 loanPanel.add(Label("No loans offered here.", skin)).left()
             }
             loan != null && loan.faction == faction -> {
-                val status = if (loan.overdue) {
-                    "OVERDUE - you owe ${loan.repayAmount}g"
-                } else {
-                    val remainingGameMinutes = (loan.deadlineGameMinutes - GameClock.totalGameMinutes).coerceAtLeast(0f)
-                    val remainingRealMinutes = GameClock.gameMinutesToRealMinutes(remainingGameMinutes).toInt()
-                    "You owe ${loan.repayAmount}g, due in ${remainingRealMinutes / 60}h ${remainingRealMinutes % 60}m"
-                }
                 loanPanel.add(Label("Outstanding loan:", skin)).left().padBottom(4f).row()
-                loanPanel.add(Label(status, skin)).left().padBottom(8f).row()
-                val repayButton = TextButton("Repay", skin)
-                repayButton.addListener(object : ClickListener() {
+                val statusLabel = Label(loanStatusText(loan), skin)
+                loanStatusLabel = statusLabel
+                loanPanel.add(statusLabel).left().padBottom(8f).row()
+                val button = TextButton("Repay", skin)
+                button.addListener(object : ClickListener() {
                     override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                        if (player.canRepayLoan()) {
-                            player.repayLoan()
-                            AudioManager.playCoins()
-                            refresh()
-                        }
+                        if (player.repayLoan()) AudioManager.playCoins()
+                        refresh()
                     }
                 })
-                repayButton.touchable = if (player.canRepayLoan()) Touchable.enabled else Touchable.disabled
-                loanPanel.add(repayButton).width(140f).left()
+                repayButton = button
+                loanPanel.add(button).width(140f).left()
             }
             loan != null -> {
                 loanPanel.add(
@@ -156,16 +179,14 @@ class FortressUI(private val player: Player, private val onBack: () -> Unit) {
                     val borrowButton = TextButton("Borrow", skin)
                     borrowButton.addListener(object : ClickListener() {
                         override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                            if (player.canTakeLoan()) {
-                                player.takeLoan(offer, faction, GameClock.totalGameMinutes)
-                                AudioManager.playCoins()
-                                refresh()
-                            }
+                            if (player.takeLoan(offer, faction, GameClock.totalGameMinutes)) AudioManager.playCoins()
+                            refresh()
                         }
                     })
                     loanPanel.add(borrowButton).width(100f).pad(3f).row()
                 }
             }
         }
+        updateTexts()
     }
 }

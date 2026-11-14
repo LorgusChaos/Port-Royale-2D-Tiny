@@ -166,10 +166,10 @@ class FleetSimulationTest {
         FleetSimulation.recall(player, captain)
 
         player.gold = 0 // no money for a second hire fee, but none should be charged
-        assertTrue(FleetSimulation.assign(player, captain, sloopId, portB, portA, 0f, anyDistance))
+        assertTrue(FleetSimulation.assign(player, captain, sloopId, portA, "Nassau", 0f, anyDistance))
         assertEquals(0, player.gold)
-        assertEquals(portB, captain.portA)
-        assertEquals(portA, captain.portB)
+        assertEquals(portA, captain.portA)
+        assertEquals("Nassau", captain.portB)
         assertTrue(captain.headingToB)
     }
 
@@ -690,5 +690,120 @@ class FleetSimulationTest {
         for (i in 1 until headings.size) {
             assertNotEquals(headings[i - 1], headings[i])
         }
+    }
+
+    // --- assigning checks its own terms (REVIEW.md, finding 17) ---
+
+    @Test
+    fun `a captain cannot be sent from a port where the ship is not lying`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        val idle = captain()
+        player.captains.add(idle)
+
+        assertFalse(FleetSimulation.assign(player, idle, sloopId, "Nassau", portB, 0f, anyDistance))
+        assertTrue(idle.isIdle)
+    }
+
+    @Test
+    fun `a captain cannot be sent from a port to the same port`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        val idle = captain()
+        player.captains.add(idle)
+
+        assertFalse(FleetSimulation.assign(player, idle, sloopId, portA, portA, 0f, anyDistance))
+        assertTrue(idle.isIdle)
+    }
+
+    @Test
+    fun `a captain already at sea is not given a second ship`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        player.buyShip(ShipTypes.BARQUE, "Second", portA)
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val atSea = player.captains.single()
+        val cutterId = player.ownedShips.first { it.id != sloopId && it.id != player.activeShipId }.id
+
+        assertFalse(FleetSimulation.assign(player, atSea, cutterId, portA, portB, 0f, anyDistance))
+        assertEquals(sloopId, atSea.shipId)
+        assertTrue(FleetSimulation.isShipFree(player, cutterId))
+    }
+
+    // --- the far port changes only on the way home (REVIEW.md, finding 18) ---
+
+    @Test
+    fun `a captain on the way out keeps the port they are sailing for`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+        assertTrue(captain.headingToB)
+
+        assertFalse(FleetSimulation.redirect(captain, "Nassau"))
+        assertEquals(portB, captain.portB)
+    }
+
+    @Test
+    fun `a captain on the way home can be given a new far port`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+        captain.headingToB = false
+
+        assertTrue(FleetSimulation.redirect(captain, "Nassau"))
+        assertEquals("Nassau", captain.portB)
+    }
+
+    @Test
+    fun `a captain cannot be redirected to their own home port`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+        captain.headingToB = false
+
+        assertFalse(FleetSimulation.redirect(captain, portA))
+        assertEquals(portB, captain.portB)
+    }
+
+    // --- recall writes the hold off (REVIEW.md, finding 22: the rule stays, the screen asks first) ---
+
+    @Test
+    fun `recalling a captain with a full hold writes off the cargo and what it cost`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+        assertTrue(captain.cargoUnits > 0, "the captain sailed empty - nothing to write off")
+        val gold = player.gold
+
+        FleetSimulation.recall(player, captain)
+
+        assertNull(captain.cargoGood)
+        assertEquals(0, captain.cargoUnits)
+        assertEquals(0, captain.cargoCostTotal)
+        assertEquals(gold, player.gold, "the written-off hold was paid back")
+    }
+
+    // --- a hold that can no longer be sold at a profit (REVIEW.md, «Не подтверждено») ---
+
+    /** Bought at fair standing, then the flag at both ends of the route turns hostile: the sale
+     *  price falls below what the hold cost and the board never comes back to it. Does the
+     *  captain ever trade again? */
+    @Test
+    fun `a captain whose hold can no longer be sold at a profit trades again in the end`() {
+        val (player, sloopId) = playerWithSpareSloop()
+        FleetSimulation.hire(player, captain(), sloopId, portA, portB, 0f, anyDistance)
+        val captain = player.captains.single()
+        val bought = captain.cargoUnits
+        assertTrue(bought > 0, "the captain sailed empty")
+        for (port in listOf(portA, portB)) {
+            com.portroyale.tiny.world.Ports.ALL.first { it.name == port }.faction?.let {
+                player.reputation[it] = com.portroyale.tiny.factions.REPUTATION_MIN
+            }
+        }
+
+        var legs = 0
+        while (legs < 40 && captain.cargoUnits == bought && captain.cargoCostTotal > 0) {
+            FleetSimulation.update(player, captain.arrivesAtGameMinutes, anyDistance)
+            legs++
+        }
+
+        assertTrue(legs < 40, "after twenty round trips the captain still sails the same hold back and forth: ${captain.lastReport}")
     }
 }

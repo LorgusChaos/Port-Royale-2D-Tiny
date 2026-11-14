@@ -50,7 +50,7 @@ class PirateRaidTest {
 
         assertEquals(raid.centre, ship.anchor)
         assertNotEquals(home, ship.anchor)
-        assertTrue(raid.pirates().contains(ship))
+        assertTrue(raid.pirates(listOf(ship)).contains(ship))
     }
 
     @Test
@@ -80,8 +80,8 @@ class PirateRaidTest {
         ships.forEachIndexed { index, ship ->
             assertEquals(homes[index], ship.anchor, "${ship.displayName} was left living in the corridor")
         }
-        assertTrue(raid.pirates().isEmpty())
-        assertTrue(raid.warships().isEmpty())
+        assertTrue(raid.pirates(ships).isEmpty())
+        assertTrue(raid.warships(ships).isEmpty())
     }
 
     @Test
@@ -97,7 +97,7 @@ class PirateRaidTest {
 
         assertEquals(home, fleeing.anchor)
         assertEquals(raid.centre, staying.anchor)
-        assertEquals(listOf(staying), raid.pirates())
+        assertEquals(listOf(staying), raid.pirates(listOf(fleeing, staying)))
     }
 
     @Test
@@ -133,12 +133,11 @@ class PirateRaidTest {
     @Test
     fun `pirates and warships are counted apart`() {
         val raid = raid()
-        raid.draftIn(pirate(0f, 0f), raid.centre)
-        raid.draftIn(pirate(10f, 10f), raid.centre)
-        raid.draftIn(warship(Faction.ENGLAND, 20f, 20f), raid.centre)
+        val ships = listOf(pirate(0f, 0f), pirate(10f, 10f), warship(Faction.ENGLAND, 20f, 20f))
+        ships.forEach { raid.draftIn(it, raid.centre) }
 
-        assertEquals(2, raid.pirates().size)
-        assertEquals(1, raid.warships().size)
+        assertEquals(2, raid.pirates(ships).size)
+        assertEquals(1, raid.warships(ships).size)
     }
 
     @Test
@@ -280,5 +279,82 @@ class PirateRaidTest {
         assertEquals(2, raid.squadrons.size)
         assertEquals(listOf(spanish), raid.squadrons.getValue(Faction.SPAIN).toList())
         assertEquals(listOf(english), raid.squadrons.getValue(Faction.ENGLAND).toList())
+    }
+
+    // --- a raid counts only ships afloat, and its gathering has a time limit (REVIEW.md, finding 13) ---
+
+    private val tolerance = 260f
+
+    /** Gathers in one-second steps for up to an hour of world time; answers how it ended. */
+    private fun gatherUntilDecided(raid: PirateRaid, alive: List<AiShip>): PirateRaid.Gathering {
+        var outcome = PirateRaid.Gathering.WAITING
+        var waited = 0
+        while (outcome == PirateRaid.Gathering.WAITING && waited < 3600) {
+            outcome = raid.gather(1f, alive, tolerance)
+            waited++
+        }
+        return outcome
+    }
+
+    @Test
+    fun `pirates gone from the sea without being released are not counted as the raid's`() {
+        val raid = raid()
+        val ships = listOf(pirate(0f, 0f), pirate(10f, 10f))
+        ships.forEach { raid.draftIn(it, raid.centre) }
+
+        assertTrue(raid.pirates(emptyList()).isEmpty(), "the raid counts wrecks as its pirates")
+        assertEquals(listOf(ships[1]), raid.pirates(listOf(ships[1])))
+    }
+
+    @Test
+    fun `a band waiting on a straggler sets out on time with the ships that arrived`() {
+        val raid = raid()
+        val arrived = pirate(raid.rallyPoint.x, raid.rallyPoint.y)
+        val straggler = pirate(3000f, 200f)
+        val strayHome = straggler.anchor.cpy()
+        for (ship in listOf(arrived, straggler)) {
+            raid.band += ship
+            raid.draftIn(ship, raid.rallyPoint)
+        }
+
+        assertEquals(PirateRaid.Gathering.SET_OUT, gatherUntilDecided(raid, listOf(arrived, straggler)), "still waiting after an hour")
+        assertEquals(listOf(arrived), raid.band, "the straggler is still counted in the band")
+        assertEquals(strayHome, straggler.anchor, "the straggler was left living at the rally point")
+        assertFalse(raid.displacedAnchors.containsKey(straggler))
+    }
+
+    @Test
+    fun `a band nobody brings to the rally point is called off on time`() {
+        val raid = raid()
+        val ships = listOf(pirate(3000f, 200f), pirate(2900f, 300f))
+        for (ship in ships) {
+            raid.band += ship
+            raid.draftIn(ship, raid.rallyPoint)
+        }
+
+        assertEquals(PirateRaid.Gathering.ABANDONED, gatherUntilDecided(raid, ships), "still waiting after an hour")
+    }
+
+    @Test
+    fun `a band that has all arrived sets out at once`() {
+        val raid = raid()
+        val ships = listOf(pirate(raid.rallyPoint.x, raid.rallyPoint.y), pirate(raid.rallyPoint.x + 50f, raid.rallyPoint.y))
+        for (ship in ships) {
+            raid.band += ship
+            raid.draftIn(ship, raid.rallyPoint)
+        }
+
+        assertEquals(PirateRaid.Gathering.SET_OUT, raid.gather(0.1f, ships, tolerance))
+        assertEquals(ships, raid.band)
+    }
+
+    @Test
+    fun `a band whose every member is gone is not formed up`() {
+        val raid = raid()
+        val ship = pirate(raid.rallyPoint.x, raid.rallyPoint.y)
+        raid.band += ship
+        raid.draftIn(ship, raid.rallyPoint)
+
+        assertFalse(raid.formedUp(emptyList(), tolerance))
     }
 }

@@ -39,6 +39,9 @@ object UiSkinFactory {
 
     private val sharedFont: BitmapFont by lazy { generateFont(21) }
 
+    /** Every texture solidDrawable/borderedDrawable made; freed in [disposeSharedFont]. */
+    private val chromeTextures = mutableListOf<Texture>()
+
     fun build(): Skin {
         val skin = Skin()
         val font = sharedFont
@@ -87,6 +90,10 @@ object UiSkinFactory {
      *  shared across all of them. */
     fun disposeSharedFont() {
         sharedFont.dispose()
+        // Chrome textures are shared by no Skin (each build() makes its own and Skin.dispose does
+        // not free them), so they live until the application exits (REVIEW.md, finding 44).
+        chromeTextures.forEach { it.dispose() }
+        chromeTextures.clear()
     }
 
     /** Public so callers outside the Scene2D skin system (e.g. map-space labels drawn straight
@@ -120,6 +127,7 @@ object UiSkinFactory {
         pixmap.setColor(color)
         pixmap.fill()
         val texture = Texture(pixmap)
+        chromeTextures.add(texture)
         pixmap.dispose()
         val drawable = TextureRegionDrawable(TextureRegion(texture))
         if (minWidth > 0f) drawable.minWidth = minWidth
@@ -147,6 +155,7 @@ object UiSkinFactory {
         pixmap.fillRectangle(0, 0, borderWidth, size)
         pixmap.fillRectangle(size - borderWidth, 0, borderWidth, size)
         val texture = Texture(pixmap)
+        chromeTextures.add(texture)
         pixmap.dispose()
         val patch = NinePatch(texture, borderWidth, borderWidth, borderWidth, borderWidth)
         val drawable = NinePatchDrawable(patch)

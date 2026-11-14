@@ -37,7 +37,13 @@ class CaptainStatusUI(private val player: Player, private val onBack: () -> Unit
     private lateinit var confirmRouteButton: TextButton
     private lateinit var routeHint: Label
     private var captain: Captain? = null
+    private lateinit var recallButton: TextButton
     private var pendingPortB = ""
+    /** Why the last "Confirm New Route" was refused; empty otherwise. */
+    private var refusal = ""
+    /** True after the first Recall press with cargo aboard; the second press recalls. */
+    private var recallArmed = false
+    private var refreshTimer = 0f
 
     init {
         root.setFillParent(true)
@@ -49,10 +55,19 @@ class CaptainStatusUI(private val player: Player, private val onBack: () -> Unit
     fun open(target: Captain) {
         captain = target
         pendingPortB = target.portB
+        refusal = ""
+        recallArmed = false
+        refreshTimer = 0f
         refresh()
     }
 
     fun render(delta: Float) {
+        // The simulation keeps moving under an open window; follow it twice a second.
+        refreshTimer += delta
+        if (refreshTimer >= REFRESH_INTERVAL) {
+            refreshTimer = 0f
+            refresh()
+        }
         stage.viewport.apply()
         stage.act(delta)
         stage.draw()
@@ -103,7 +118,8 @@ class CaptainStatusUI(private val player: Player, private val onBack: () -> Unit
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
                 val current = captain ?: return
                 AudioManager.playClick()
-                current.portB = pendingPortB
+                refusal = if (FleetSimulation.redirect(current, pendingPortB)) ""
+                else "${current.name} is already sailing for ${current.portB} - the route can be changed once they turn for home."
                 refresh()
             }
         })
@@ -113,11 +129,17 @@ class CaptainStatusUI(private val player: Player, private val onBack: () -> Unit
         routeHint.setWrap(true)
         panel.add(routeHint).colspan(3).width(440f).left().padBottom(16f).row()
 
-        val recallButton = TextButton("Recall", skin)
+        recallButton = TextButton("Recall", skin)
         recallButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
                 val current = captain ?: return
                 AudioManager.playClick()
+                if (hasCargo(current) && !recallArmed) {
+                    // Cargo aboard would be written off: the first click only asks.
+                    recallArmed = true
+                    refresh()
+                    return
+                }
                 FleetSimulation.recall(player, current)
                 onBack()
             }
@@ -157,8 +179,25 @@ class CaptainStatusUI(private val player: Player, private val onBack: () -> Unit
 
         val canChangeRoute = FleetSimulation.canRedirect(current)
         confirmRouteButton.touchable = if (canChangeRoute) Touchable.enabled else Touchable.disabled
+
+        // The hold may have emptied (sold, or the trip ended) since the first press.
+        if (!hasCargo(current)) recallArmed = false
+        recallButton.setText(if (recallArmed) "Confirm recall" else "Recall")
+        val cargoGood = current.cargoGood
         routeHint.setText(
-            if (canChangeRoute) "" else "Can't redirect while outbound to ${current.portB} - wait until ${current.name} turns back toward ${current.portA}."
+            when {
+                recallArmed && cargoGood != null ->
+                    "Recalling ${current.name} now writes off ${current.cargoUnits}x ${cargoGood.displayName} (cost ${current.cargoCostTotal}g)."
+                canChangeRoute -> ""
+                refusal.isNotEmpty() -> refusal
+                else -> "Can't redirect while outbound to ${current.portB} - wait until ${current.name} turns back toward ${current.portA}."
+            }
         )
+    }
+
+    private fun hasCargo(c: Captain) = c.cargoUnits > 0 && c.cargoGood != null
+
+    private companion object {
+        const val REFRESH_INTERVAL = 0.5f
     }
 }

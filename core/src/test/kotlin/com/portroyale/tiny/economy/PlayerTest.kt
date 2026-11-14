@@ -753,4 +753,160 @@ class PlayerTest {
         assertEquals(1, player.activeShipId)
         assertSame(ShipTypes.GALLEON, player.ownedShips.single().shipType)
     }
+
+    // --- every action checks its own terms (REVIEW.md, finding 17) ---
+    //
+    // A port screen checks `can…` when it is drawn, and acts when a button is pressed - possibly
+    // much later, after a captain has spent from the same purse. So each action must refuse on
+    // its own, change nothing, and say so.
+
+    @Test
+    fun `a good the purse cannot pay for is not bought`() {
+        val player = freshPlayer()
+        player.gold = 5
+        assertFalse(player.buy(Good.SUGAR, 10))
+        assertEquals(5, player.gold)
+        assertEquals(0, player.cargoUsed)
+    }
+
+    @Test
+    fun `a good there is no room for is not bought`() {
+        val player = freshPlayer()
+        player.cargo[Good.RUM] = player.cargoCapacity
+        assertFalse(player.buy(Good.SUGAR, 10))
+        assertEquals(10000, player.gold)
+        assertEquals(player.cargoCapacity, player.cargoUsed)
+    }
+
+    @Test
+    fun `a good that is not aboard cannot be sold`() {
+        val player = freshPlayer()
+        assertFalse(player.sell(Good.SUGAR, 90))
+        assertEquals(10000, player.gold)
+        assertEquals(0, player.cargo[Good.SUGAR])
+    }
+
+    @Test
+    fun `a trade the player can afford goes through and says so`() {
+        val player = freshPlayer()
+        assertTrue(player.buy(Good.SUGAR, 110))
+        assertTrue(player.sell(Good.SUGAR, 90))
+        assertEquals(10000 - 110 + 90, player.gold)
+    }
+
+    @Test
+    fun `a ship the purse cannot pay for is not bought`() {
+        val player = freshPlayer()
+        player.gold = ShipTypes.CUTTER.price - 1
+        val sloopId = player.activeShipId
+        assertFalse(player.buyShip(ShipTypes.CUTTER, "Runner", "Havana"))
+        assertEquals(ShipTypes.CUTTER.price - 1, player.gold)
+        assertEquals(1, player.ownedShips.size)
+        assertEquals(sloopId, player.activeShipId)
+        assertSame(ShipTypes.SLOOP, player.ship)
+    }
+
+    @Test
+    fun `a ship docked in another port cannot be boarded`() {
+        val player = freshPlayer()
+        val sloopId = player.activeShipId
+        player.buyShip(ShipTypes.CUTTER, "Runner", "Havana")
+        val cutterId = player.activeShipId
+        assertFalse(player.boardShip(sloopId, "Nassau"))
+        assertEquals(cutterId, player.activeShipId)
+        assertSame(ShipTypes.CUTTER, player.ship)
+    }
+
+    @Test
+    fun `upgrades the purse cannot pay for are not fitted`() {
+        val player = freshPlayer()
+        player.gold = 0
+        assertFalse(player.upgradeCannons())
+        assertFalse(player.upgradeOars())
+        assertFalse(player.upgradeSails())
+        assertEquals(0, player.condition.cannonLevel)
+        assertEquals(0, player.condition.oarLevel)
+        assertEquals(0, player.condition.sailLevel)
+        assertEquals(0, player.gold)
+    }
+
+    @Test
+    fun `a hull is not cleaned or repaired on credit`() {
+        val player = freshPlayer()
+        player.condition.fouling = 0.5f
+        player.condition.currentHull = 10
+        player.gold = 0
+        assertFalse(player.cleanHull())
+        assertFalse(player.repair())
+        assertEquals(0.5f, player.condition.fouling)
+        assertEquals(10, player.condition.currentHull)
+        assertEquals(0, player.gold)
+    }
+
+    @Test
+    fun `a warehouse is not bought or enlarged on credit`() {
+        val player = freshPlayer()
+        player.gold = WAREHOUSE_PURCHASE_PRICE - 1
+        assertFalse(player.buyWarehouse("Havana"))
+        assertNull(player.warehouseAt("Havana"))
+        player.gold = WAREHOUSE_PURCHASE_PRICE
+        player.buyWarehouse("Havana")
+        assertFalse(player.expandWarehouse("Havana"))
+        assertEquals(1, player.warehouseAt("Havana")!!.level)
+        assertEquals(0, player.gold)
+    }
+
+    @Test
+    fun `a warehouse moves nothing that is not there to move`() {
+        val player = freshPlayer()
+        player.buyWarehouse("Havana")
+        val purse = player.gold
+        assertFalse(player.storeGold("Havana", purse + 1))
+        assertFalse(player.withdrawGold("Havana", 1))
+        assertFalse(player.storeGood("Havana", Good.SUGAR))
+        player.warehouseAt("Havana")!!.goods[Good.SUGAR] = 1
+        player.cargo[Good.RUM] = player.cargoCapacity
+        assertFalse(player.withdrawGood("Havana", Good.SUGAR))
+        assertEquals(purse, player.gold)
+        assertEquals(0, player.warehouseAt("Havana")!!.gold)
+        assertEquals(1, player.warehouseAt("Havana")!!.goods[Good.SUGAR])
+        assertEquals(0, player.cargo[Good.SUGAR])
+    }
+
+    @Test
+    fun `a second loan is not given and a loan is not repaid on credit`() {
+        val player = freshPlayer()
+        player.takeLoan(LOAN_OFFERS.first(), Faction.SPAIN, 0f)
+        val loan = player.loan
+        val purse = player.gold
+        assertFalse(player.takeLoan(LOAN_OFFERS.last(), Faction.ENGLAND, 0f))
+        assertSame(loan, player.loan)
+        assertEquals(purse, player.gold)
+        player.gold = 0
+        assertFalse(player.repayLoan())
+        assertSame(loan, player.loan)
+        assertEquals(0, player.gold)
+    }
+
+    // --- a new ship must take the hold (REVIEW.md, finding 3) ---
+
+    @Test
+    fun `a ship too small for the hold is refused however full the purse`() {
+        val player = freshPlayer()
+        player.cargo[Good.SUGAR] = ShipTypes.CUTTER.cargoCapacity + 1
+        assertFalse(player.canBuyShip(ShipTypes.CUTTER), "offered a Cutter that cannot take the hold")
+        assertFalse(player.buyShip(ShipTypes.CUTTER, "Runner", "Havana"))
+        assertSame(ShipTypes.SLOOP, player.ship)
+        assertEquals(1, player.ownedShips.size)
+    }
+
+    @Test
+    fun `a ship the hold fits into can be bought, and the hold is within it afterwards`() {
+        val player = freshPlayer()
+        player.cargo[Good.SUGAR] = ShipTypes.CUTTER.cargoCapacity
+        assertTrue(player.canBuyShip(ShipTypes.CUTTER))
+        player.buyShip(ShipTypes.CUTTER, "Runner", "Havana")
+        assertSame(ShipTypes.CUTTER, player.ship)
+        assertTrue(player.cargoUsed <= player.cargoCapacity)
+    }
 }

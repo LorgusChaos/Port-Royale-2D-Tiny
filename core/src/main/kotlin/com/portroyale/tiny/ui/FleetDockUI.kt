@@ -137,6 +137,7 @@ class FleetDockUI(private val player: Player, private val onBack: () -> Unit) {
             boardButton.addListener(object : ClickListener() {
                 override fun clicked(event: InputEvent?, x: Float, y: Float) {
                     AudioManager.playClick()
+                    // Refreshed whether or not the swap happened, so a stale button is corrected.
                     player.boardShip(ship.id, currentPort)
                     refresh()
                 }

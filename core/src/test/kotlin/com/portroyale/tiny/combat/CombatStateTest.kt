@@ -261,4 +261,44 @@ class CombatStateTest {
         /** Sized so the maneuverability gaps under test sit ~8 standard errors apart. */
         const val ESCAPE_TRIALS = 3000
     }
+
+    // --- the enemy brings the hull it has, and takes the damage away (REVIEW.md, finding 2) ---
+
+    @Test
+    fun `an enemy that comes to the fight battered starts it battered`() {
+        val combat = CombatState(Player(), playerStats(), ShipCombatant("Battered", 100, 0, 0, "e.png", currentHull = 30))
+        assertEquals(30, combat.enemyHull)
+        assertEquals(100, combat.enemyMaxHull)
+    }
+
+    @Test
+    fun `an enemy with no hull named starts the fight whole`() {
+        val combat = CombatState(Player(), playerStats(), harmlessEnemy(maxHull = 80))
+        assertEquals(80, combat.enemyHull)
+    }
+
+    @Test
+    fun `damage done before the player gets away is handed back`() {
+        com.portroyale.tiny.diagnostics.GameRandom.withSeed(17L) {
+            var reported: Int? = null
+            val combat = CombatState(
+                Player(), playerStats(), ShipCombatant("Tough", 1000, 0, 0, "e.png"),
+                onEnemyHullChanged = { reported = it }
+            )
+            var shots = 0
+            while (combat.enemyHull == 1000 && shots < 50) {
+                combat.playerAttack()
+                shots++
+            }
+            var tries = 0
+            while (!combat.isOver && tries < 200) {
+                combat.playerFlee()
+                tries++
+            }
+
+            assertEquals(CombatOutcome.FLED, combat.outcome)
+            assertTrue(combat.enemyHull < 1000, "never landed a shot")
+            assertEquals(combat.enemyHull, reported, "the damage stayed inside the fight")
+        }
+    }
 }

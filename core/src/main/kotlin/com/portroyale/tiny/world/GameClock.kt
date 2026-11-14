@@ -15,11 +15,16 @@ private val MONTH_NAMES = listOf(
  *  advances during active SAILING/IN_PORT/COMBAT play (see PortRoyaleGame), not while paused or
  *  on a menu screen. */
 object GameClock {
-    var totalGameMinutes: Float = 0f
-        private set
+    /** Accumulated in Double, not Float: one frame on 1x adds ~0.003 game minutes, and by day 46
+     *  that is less than half the gap between neighbouring Float values, so a Float sum rounds
+     *  every frame's step away and the clock stands still. Callers and the save format still see
+     *  a Float - converting on read loses a little precision once, it never accumulates. */
+    private var total: Double = 0.0
+
+    val totalGameMinutes: Float get() = total.toFloat()
 
     fun update(realDeltaSeconds: Float) {
-        totalGameMinutes += (realDeltaSeconds / 60f) * TIME_SCALE
+        total += (realDeltaSeconds.toDouble() / 60.0) * TIME_SCALE
     }
 
     val day: Int get() = (totalGameMinutes / GAME_MINUTES_PER_DAY).toInt() + 1
@@ -47,12 +52,12 @@ object GameClock {
     fun realSecondsToGameMinutes(realSeconds: Float): Float = (realSeconds / 60f) * TIME_SCALE
 
     fun reset() {
-        totalGameMinutes = 0f
+        total = 0.0
     }
 
     fun snapshot(): Float = totalGameMinutes
 
     fun restore(value: Float) {
-        totalGameMinutes = value
+        total = value.toDouble()
     }
 }

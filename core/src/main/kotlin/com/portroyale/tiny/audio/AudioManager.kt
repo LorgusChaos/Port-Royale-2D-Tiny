@@ -5,6 +5,7 @@ import com.badlogic.gdx.audio.Music
 import com.badlogic.gdx.audio.Sound
 
 private const val MUSIC_VOLUME = 0.35f
+private const val DEFAULT_MASTER_VOLUME = 1f
 
 private val SAILING_TRACK_PATHS = listOf(
     "audio/music/sailing_1.wav",
@@ -18,7 +19,7 @@ private val SAILING_TRACK_PATHS = listOf(
  *  track that restarts fresh at the beginning of every fight. All playback goes through
  *  [effective] so the Settings screen's master volume/mute apply uniformly to music and SFX. */
 object AudioManager {
-    var masterVolume: Float = 1f
+    var masterVolume: Float = DEFAULT_MASTER_VOLUME
         private set
     var muted: Boolean = false
         private set
@@ -31,22 +32,25 @@ object AudioManager {
     private val marketEnter: Sound by lazy { Gdx.audio.newSound(Gdx.files.internal("audio/market_enter.ogg")) }
     private val shipyardEnter: Sound by lazy { Gdx.audio.newSound(Gdx.files.internal("audio/shipyard_enter.ogg")) }
 
-    private val sailingTracks: List<Music> by lazy {
-        SAILING_TRACK_PATHS.map { path ->
+    // Nullable fields instead of `by lazy`, so a volume change can tell which tracks exist and
+    // touch only those - it used to load every track at startup (REVIEW.md, finding 44). A track
+    // takes the current volume when it is created.
+    private var sailingTracksOrNull: List<Music>? = null
+    private val sailingTracks: List<Music>
+        get() = sailingTracksOrNull ?: SAILING_TRACK_PATHS.map { path ->
             Gdx.audio.newMusic(Gdx.files.internal(path)).apply {
                 volume = effective(MUSIC_VOLUME)
                 setOnCompletionListener { advanceSailingTrack() }
             }
-        }
-    }
+        }.also { sailingTracksOrNull = it }
     private var sailingIndex = 0
 
-    private val combatTrack: Music by lazy {
-        Gdx.audio.newMusic(Gdx.files.internal("audio/music/combat.wav")).apply {
+    private var combatTrackOrNull: Music? = null
+    private val combatTrack: Music
+        get() = combatTrackOrNull ?: Gdx.audio.newMusic(Gdx.files.internal("audio/music/combat.wav")).apply {
             isLooping = true
             volume = effective(MUSIC_VOLUME)
-        }
-    }
+        }.also { combatTrackOrNull = it }
 
     fun playCannonFire() { cannonFire.play(effective(0.6f)) }
     fun playHit() { hit.play(effective(0.7f)) }
@@ -63,14 +67,14 @@ object AudioManager {
 
     /** Resumes the sailing playlist from wherever it last paused (or starts it fresh). */
     fun playSailingMusic() {
-        combatTrack.pause()
+        combatTrackOrNull?.pause()
         val current = sailingTracks[sailingIndex]
         if (!current.isPlaying) current.play()
     }
 
     /** Pauses the sailing playlist in place, e.g. while in a port menu. */
     fun pauseSailingMusic() {
-        sailingTracks.forEach { if (it.isPlaying) it.pause() }
+        sailingTracksOrNull?.forEach { if (it.isPlaying) it.pause() }
     }
 
     /** Starts the combat track fresh from the beginning, pausing the sailing playlist. */
@@ -81,11 +85,13 @@ object AudioManager {
     }
 
     fun stopCombatMusic() {
-        combatTrack.stop()
+        combatTrackOrNull?.stop()
     }
 
     fun setMasterVolume(volume: Float) {
-        masterVolume = volume.coerceIn(0f, 1f)
+        // coerceIn lets NaN through, so a non-finite value falls back to full volume explicitly
+        // (REVIEW.md, finding 36).
+        masterVolume = if (volume.isFinite()) volume.coerceIn(0f, 1f) else DEFAULT_MASTER_VOLUME
         applyMusicVolumes()
     }
 
@@ -95,8 +101,8 @@ object AudioManager {
     }
 
     private fun applyMusicVolumes() {
-        sailingTracks.forEach { it.volume = effective(MUSIC_VOLUME) }
-        combatTrack.volume = effective(MUSIC_VOLUME)
+        sailingTracksOrNull?.forEach { it.volume = effective(MUSIC_VOLUME) }
+        combatTrackOrNull?.volume = effective(MUSIC_VOLUME)
     }
 
     private fun effective(base: Float): Float = if (muted) 0f else base * masterVolume
@@ -109,7 +115,7 @@ object AudioManager {
         portArrival.dispose()
         marketEnter.dispose()
         shipyardEnter.dispose()
-        sailingTracks.forEach { it.dispose() }
-        combatTrack.dispose()
+        sailingTracksOrNull?.forEach { it.dispose() }
+        combatTrackOrNull?.dispose()
     }
 }

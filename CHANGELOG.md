@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.4.6.1] - 2026-11-14
+
+A full code review, worked through: 44 findings, each fixed with a test that failed on the old
+code first. The details are in `docs/REVIEW.md` and `docs/REVIEW-CHECKLIST.md`.
+
+### Added
+- **The save holds the whole game.** Every AI ship is saved with what it was doing - its course,
+  its chase, its flight - along with the raid at its stage and on its clock, the sea events where
+  they lay, the player's course and hunt, the captains' detours and a castaway aboard. A load
+  carries on from the same moment instead of opening on a fresh sea. A save from an earlier
+  version still loads, around a fresh sea, and says so.
+- Saves are written to a temporary file and moved into place, so a crash mid-write leaves the old
+  save; the previous version is kept as a backup and used, with a word to the player, if the save
+  itself is damaged. A save that cannot be read is explained on the load screen.
+- The event message keeps a queue: a new message waits behind the open one, and a "Fight / Sail
+  On" question stays until it is answered.
+- Recalling a captain with cargo aboard asks first and says what would be written off.
+
+### Changed
+- The world simulation moved out of the game class into `world/GameWorld.kt` (no window, sound
+  or textures), with its own tests on the real map; a new game and a load build a new world, so
+  nothing from one game - a raid, a castaway, a hunt - carries into the next.
+- Every player action checks its own terms: gold can no longer go negative because a captain
+  spent it while a port screen was open, and a ship the hold does not fit cannot be bought (the
+  shipyard says why).
+- No saving during a fight, by hand or by autosave.
+- The player's enemy comes to a fight with the hull it has and leaves with the damage done.
+- A captain sheltering in port sails on after an hour of game time even if a threat stays near;
+  a manoeuvre that cannot be laid no longer draws the ship through land.
+- The market and fortress screens keep their numbers live while open.
+- All randomness goes through one seeded source, so a session replays from its seed; a test now
+  enforces it.
+- The release workflow is read-only except for the release job, with actions pinned by commit.
+
+### Fixed
+- The game clock stopped advancing at normal speed after day 46.
+- `Esc` with a captain window open froze the game until restart.
+- A save name could reach outside the saves folder or be one Windows refuses.
+- A ship could be sunk twice and paid for twice; a raid whose ships were sunk could hang for the
+  rest of the session and block every raid after it.
+- A Galleon (and a Brigantine after a ship under way) could not end a chase alongside its prize.
+- AI ships started the game in harbour instead of under way.
+- A chest of goods could overfill the hold; a second castaway overwrote the first.
+- A course avoiding a threat the ship was already close to fell back to a course straight at it.
+- One long frame at speed could carry the player's ship past a waypoint or over a strip of land.
+- Fullscreen could read "On" without a matching display mode.
+- A click beside an open message laid a course when the message closed.
+- A pirate kept chasing a captain who had been lost; settings with an impossible value broke the
+  volume; two diagnostics files in one second overwrote each other.
+
 ## [0.4.6.0] - 2026-10-29
 
 ### Added

@@ -168,6 +168,10 @@ class HudOverlayUI(
         val captain = label(PortFrame.BODY_COLOR, Align.center)
         val bars = listOf(HudArt.fill(HULL_COLOUR), HudArt.fill(SAILS_COLOUR), HudArt.fill(CARGO_COLOUR))
         var onClick: (() -> Unit)? = null
+        private var shownName: String? = null
+        private var shownCaptain: String? = null
+        private var shownNameBox: Rectangle? = null
+        private var shownCaptainBox: Rectangle? = null
 
         init {
             piece.image.touchable = Touchable.enabled
@@ -184,12 +188,23 @@ class HudOverlayUI(
 
         fun show(status: ShipStatus, left: Float, top: Float) {
             piece.place(left, top, SHIP_PANEL_W)
-            name.setText(status.shipName)
-            captain.setText(status.captainName)
             onClick = status.onClick
             piece.image.touchable = if (status.onClick == null) Touchable.disabled else Touchable.enabled
-            fitLabel(name, piece.box(SHIP_NAME_BOX[0], SHIP_NAME_BOX[1], SHIP_NAME_BOX[2], SHIP_NAME_BOX[3]))
-            fitLabel(captain, piece.box(SHIP_CAPTAIN_BOX[0], SHIP_CAPTAIN_BOX[1], SHIP_CAPTAIN_BOX[2], SHIP_CAPTAIN_BOX[3]))
+            // Refit only when the text or the box changed (REVIEW.md, finding 44).
+            val nameBox = piece.box(SHIP_NAME_BOX[0], SHIP_NAME_BOX[1], SHIP_NAME_BOX[2], SHIP_NAME_BOX[3])
+            val captainBox = piece.box(SHIP_CAPTAIN_BOX[0], SHIP_CAPTAIN_BOX[1], SHIP_CAPTAIN_BOX[2], SHIP_CAPTAIN_BOX[3])
+            if (status.shipName != shownName || nameBox != shownNameBox) {
+                shownName = status.shipName
+                shownNameBox = Rectangle(nameBox)
+                name.setText(status.shipName)
+                fitLabel(name, nameBox)
+            }
+            if (status.captainName != shownCaptain || captainBox != shownCaptainBox) {
+                shownCaptain = status.captainName
+                shownCaptainBox = Rectangle(captainBox)
+                captain.setText(status.captainName)
+                fitLabel(captain, captainBox)
+            }
             val values = listOf(status.hull, status.sails, status.cargo)
             for (i in bars.indices) {
                 val trough = piece.box(SHIP_BAR_X, SHIP_BAR_Y[i], SHIP_BAR_W, SHIP_BAR_H)
@@ -231,18 +246,31 @@ class HudOverlayUI(
 
     // --- what the game feeds in -------------------------------------------------------------
 
+    // These are called every frame; setText + fitLabel re-measure the text, so skip them while the
+    // value is unchanged. layout() refits with the current text, so a resize needs no reset here
+    // (REVIEW.md, finding 44).
+    private var shownDate: String? = null
+    private var shownGold: Int? = null
+    private var shownSpeed: String? = null
+
     fun setDate(text: String) {
+        if (text == shownDate) return
+        shownDate = text
         dateLabel.setText(text)
         fitLabel(dateLabel, dateBox)
     }
 
     fun setGold(amount: Int) {
+        if (amount == shownGold) return
+        shownGold = amount
         goldLabel.setText(amount.toString())
         fitLabel(goldLabel, goldBox, Align.left)
     }
 
     fun setGameSpeed(multiplier: Float) {
         val text = if (multiplier == multiplier.toInt().toFloat()) "${multiplier.toInt()}x" else "${multiplier}x"
+        if (text == shownSpeed) return
+        shownSpeed = text
         speedLabel.setText(text)
         fitLabel(speedLabel, speedBox)
     }

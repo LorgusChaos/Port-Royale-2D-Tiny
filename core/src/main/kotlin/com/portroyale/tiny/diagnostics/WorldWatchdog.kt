@@ -28,10 +28,20 @@ class WorldWatchdog(
         if (sinceLastCheck < intervalSeconds) return false
         sinceLastCheck = 0f
         val seen = mutableSetOf<String>()
-        checks(Reporter(seen))
-        // Anything that was wrong and no longer is becomes reportable again, so a problem that
-        // comes back is not silently swallowed by the first time it happened.
-        active.retainAll(seen)
+        val reporter = Reporter(seen)
+        try {
+            checks(reporter)
+        } catch (e: Exception) {
+            // A diagnostic sweep must never be what takes a session down: the failure is itself a
+            // problem, reported once like any other (REVIEW.md, finding 6).
+            reporter.problem("watchdog/check-failed/${e.javaClass.name}") {
+                "a check threw ${e.javaClass.simpleName}: ${e.message}"
+            }
+        } finally {
+            // Anything that was wrong and no longer is becomes reportable again, so a problem that
+            // comes back is not silently swallowed by the first time it happened.
+            active.retainAll(seen)
+        }
         return true
     }
 

@@ -9,6 +9,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.TextField
 import com.badlogic.gdx.scenes.scene2d.utils.ClickListener
 import com.portroyale.tiny.audio.AudioManager
 import com.portroyale.tiny.save.SaveManager
+import com.portroyale.tiny.save.SaveNameCheck
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -96,13 +97,22 @@ class SaveGameUI(private val onSave: (saveName: String) -> Unit, private val onB
         val saveButton = TextButton("Save", skin)
         saveButton.addListener(object : ClickListener() {
             override fun clicked(event: InputEvent?, x: Float, y: Float) {
-                val name = nameField.text.trim()
-                if (name.isEmpty()) {
-                    statusLabel.setText("Enter a name first.")
+                val name = when (val check = SaveManager.checkSaveName(nameField.text)) {
+                    is SaveNameCheck.Rejected -> {
+                        statusLabel.setText(check.reason)
+                        return
+                    }
+                    is SaveNameCheck.Ok -> check.name
+                }
+                // "Saved" only once the file is really written - a failed write used to throw
+                // straight out of this handler and take the game down with it.
+                try {
+                    onSave(name)
+                } catch (e: Exception) {
+                    statusLabel.setText("Could not save: ${e.message ?: e.javaClass.simpleName}")
                     return
                 }
                 AudioManager.playCoins()
-                onSave(name)
                 statusLabel.setText("Saved \"$name\".")
                 refreshList()
             }
